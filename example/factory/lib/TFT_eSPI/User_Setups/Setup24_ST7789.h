@@ -9,8 +9,8 @@
 #define TFT_HEIGHT    320 // ST7789 240 x 320
 
 #define CGRAM_OFFSET
-// #define TFT_RGB_ORDER TFT_RGB  // Colour order Red-Green-Blue
-#define TFT_RGB_ORDER TFT_BGR // Colour order Blue-Green-Red
+#define TFT_RGB_ORDER TFT_RGB  // Colour order Red-Green-Blue
+// #define TFT_RGB_ORDER TFT_BGR // Colour order Blue-Green-Red
 
 #define TFT_INVERSION_ON
 //#define TFT_INVERSION_OFF
@@ -62,7 +62,7 @@
 // #define SPI_FREQUENCY  27000000
 #define SPI_FREQUENCY      80000000
 
-#define SPI_READ_FREQUENCY 20000000
+#define SPI_READ_FREQUENCY 60000000
 
 // #define SPI_TOUCH_FREQUENCY  2500000
 
