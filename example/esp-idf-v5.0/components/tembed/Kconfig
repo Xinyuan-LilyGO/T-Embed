@@ -1,0 +1,53 @@
+menu "Lillygo T-Embed"
+
+     config TEMBED_POWER_PIN
+            int "The GPIO which controls power in the T-Embed"
+            default 46
+            help
+                This pin controls all the power to the peripherals other than the
+                ones embedded in the ESP32S3, including the LCD display. Set to
+                high to enable the power 
+
+    config TEMBED_INIT_LCD
+           bool "Initialize the LCD display"
+           default true
+           help
+                Enable this if you want to use the LCD display on the T-Embed
+                
+    config TEMBED_INIT_LEDS
+           bool "Initialize the LED strip"
+           default true
+           help
+                Enable this if you want to use the LEDS around the dial
+
+    config TEMBED_INIT_DIAL
+           bool "Initialize the dial and button"
+           help
+                Enable this if you want to use the dial
+
+    config TEMBED_DIAL_BUTTON_IO_NUM
+           int "GPIO the dial button is connected to"
+           default 0
+           help
+               Set this to the GPIO to which the dial button is connected
+
+    config TEMBED_DIAL_BUTTON_ACTIVE_LEVEL
+           int "GPIO level for the button to be active (0 or 1)"
+           range 0 1
+           default 0
+           help
+                Set this to zero if the button is active low or 1 for active high
+
+    config TEMBED_DIAL_KNOB_A
+           int "GPIO for the A connection of the dial knob"
+           default 2
+           help
+               GPIO for the A connection of the dial knob
+
+    config TEMBED_DIAL_KNOB_B
+           int "GPIO for the B connection of the dial knob"
+           default 1
+           help
+               GPIO for the B connection of the dial knob
+           
+endmenu
