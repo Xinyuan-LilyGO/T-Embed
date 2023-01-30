@@ -1,0 +1,23 @@
+menu "APA102 LED Strip"
+
+    config APA102_DATA_PIN
+           int "The data pin for the APA102 LED strip"
+           default 45
+           help
+                GPIO number of the data pin the primary APA102 LED strip is connected to.
+                For secondary strips configuration is manual
+
+    config APA102_CLOCK_PIN
+           int "The clock pin for the APA102 LED strip"
+           default 42
+           help
+                GPIO number of the clock pin the primary APA102 LED strip is connected to.
+                For secondary strips configuration is manual
+
+    config APA102_LED_COUNT
+           int "The number of LEDs in the strip"
+           default 7
+           help
+                The number of APA102 LEDs in the primary LED strip
+
+endmenu
