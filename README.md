@@ -2,14 +2,14 @@
 An ESP32S3 development board that can freely use WIFI, BLE, TF, LED, TFT_LCD functions.
 
 # Introduce
-![](image/T-Embed1.jpg)
+![](image/T-Embed1.png)
 ![](image/details.jpg)
 
 ## Product 📷
 
-|  Product |  Product Link |
-| :--------: | :---------: |
-| T-Embed |  [aliexpress]()   |
+| Product |  Product Link  |
+| :-----: | :------------: |
+| T-Embed | [aliexpress]() |
 
 
 # Quick Start
