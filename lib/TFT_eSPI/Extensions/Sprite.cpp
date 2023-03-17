@@ -223,10 +223,7 @@ void* TFT_eSprite::callocSprite(int16_t w, int16_t h, uint8_t frames)
 ***************************************************************************************/
 void TFT_eSprite::createPalette(uint16_t colorMap[], uint8_t colors)
 {
-  if (_colorMap != nullptr)
-  {
-    free(_colorMap);
-  }
+  if (!_created) return;
 
   if (colorMap == nullptr)
   {
@@ -236,7 +233,7 @@ void TFT_eSprite::createPalette(uint16_t colorMap[], uint8_t colors)
   }
 
   // Allocate and clear memory for 16 color map
-  _colorMap = (uint16_t *)calloc(16, sizeof(uint16_t));
+  if (_colorMap == nullptr) _colorMap = (uint16_t *)calloc(16, sizeof(uint16_t));
 
   if (colors > 16) colors = 16;
 
@@ -254,6 +251,8 @@ void TFT_eSprite::createPalette(uint16_t colorMap[], uint8_t colors)
 ***************************************************************************************/
 void TFT_eSprite::createPalette(const uint16_t colorMap[], uint8_t colors)
 {
+  if (!_created) return;
+
   if (colorMap == nullptr)
   {
     // Create a color map using the default FLASH map
@@ -261,7 +260,7 @@ void TFT_eSprite::createPalette(const uint16_t colorMap[], uint8_t colors)
   }
 
   // Allocate and clear memory for 16 color map
-  _colorMap = (uint16_t *)calloc(16, sizeof(uint16_t));
+  if (_colorMap == nullptr) _colorMap = (uint16_t *)calloc(16, sizeof(uint16_t));
 
   if (colors > 16) colors = 16;
 
@@ -310,13 +309,9 @@ void* TFT_eSprite::setColorDepth(int8_t b)
   else if ( b > 1 ) _bpp = 4;
   else _bpp = 1;
 
-  // Can't change an existing sprite's colour depth so delete it
-  if (_created) free(_img8_1);
-
-  // If it existed, re-create the sprite with the new colour depth
-  if (_created)
-  {
-    _created = false;
+  // Can't change an existing sprite's colour depth so delete and create a new one
+  if (_created) {
+    deleteSprite();
     return createSprite(_dwidth, _dheight);
   }
 
@@ -380,7 +375,7 @@ void TFT_eSprite::deleteSprite(void)
   if (_colorMap != nullptr)
   {
     free(_colorMap);
-	_colorMap = nullptr;
+    _colorMap = nullptr;
   }
 
   if (_created)
@@ -1257,8 +1252,8 @@ void  TFT_eSprite::pushImage(int32_t x, int32_t y, int32_t w, int32_t h, const u
 // Intentionally not constrained to viewport area, does not manage 1bpp rotations
 void TFT_eSprite::setWindow(int32_t x0, int32_t y0, int32_t x1, int32_t y1)
 {
-  if (x0 > x1) swap_coord(x0, x1);
-  if (y0 > y1) swap_coord(y0, y1);
+  if (x0 > x1) transpose(x0, x1);
+  if (y0 > y1) transpose(y0, y1);
   
   int32_t w = width();
   int32_t h = height();
@@ -1700,13 +1695,13 @@ void TFT_eSprite::drawLine(int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint3
 
   bool steep = abs(y1 - y0) > abs(x1 - x0);
   if (steep) {
-    swap_coord(x0, y0);
-    swap_coord(x1, y1);
+    transpose(x0, y0);
+    transpose(x1, y1);
   }
 
   if (x0 > x1) {
-    swap_coord(x0, x1);
-    swap_coord(y0, y1);
+    transpose(x0, x1);
+    transpose(y0, y1);
   }
 
   int32_t dx = x1 - x0, dy = abs(y1 - y0);;
@@ -2417,6 +2412,8 @@ void TFT_eSprite::drawGlyph(uint16_t code)
 {
   uint16_t fg = textcolor;
   uint16_t bg = textbgcolor;
+  bool getBG  = false;
+  if (fg == bg) getBG = true;
 
   // Check if cursor has moved
   if (last_cursor_x != cursor_x)
@@ -2551,7 +2548,7 @@ void TFT_eSprite::drawGlyph(uint16_t code)
               else drawFastHLine( fxs, y + cy, fl, fg);
               fl = 0;
             }
-            if (getColor) bg = getColor(x + cx, y + cy);
+            if (getBG) bg = readPixel(x + cx, y + cy);
             drawPixel(x + cx, y + cy, alphaBlend(pixel, fg, bg));
           }
           else

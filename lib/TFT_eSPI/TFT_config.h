@@ -12,7 +12,7 @@
  * @author Ricard Bitriá Ribes (https://github.com/dracir9)
  * Created Date: 22-01-2022
  * -----
- * Last Modified: 14-04-2022
+ * Last Modified: 25-02-2023
  * Modified By: Ricard Bitriá Ribes
  * -----
  * @copyright (c) 2022 Ricard Bitriá Ribes
@@ -78,7 +78,7 @@
     #define TFT_RGB_ORDER TFT_RGB
 #endif
 
-#ifdef CONFIG_TFT_RGB_ORDER
+#ifdef CONFIG_TFT_BGR_ORDER
     #define TFT_RGB_ORDER TFT_BGR
 #endif
 
@@ -161,6 +161,8 @@
 // 8 BIT PARALLEL BUS
 #ifdef CONFIG_TFT_PARALLEL_8_BIT
 
+    #define TFT_PARALLEL_8_BIT
+
     #if CONFIG_TFT_D0 == -1
         #error "Invalid Data 0 pin. Check TFT_eSPI configuration"
     #else
@@ -223,9 +225,11 @@
 
 // SPI BUS
 #else
-    #if CONFIG_TFT_MISO == -1
-        #error "Invalid MISO pin. Check TFT_eSPI configuration"
-    #else
+    #if CONFIG_TFT_HSPI_PORT
+        #define USE_HSPI_PORT
+    #endif
+
+    #if CONFIG_TFT_MISO != -1
         #define TFT_MISO      CONFIG_TFT_MISO
     #endif
 
@@ -301,6 +305,14 @@
     #endif
 
     #define SPI_TOUCH_FREQUENCY CONFIG_SPI_TOUCH_FREQUENCY
+#endif
+
+/***************************************************************************************
+**                         Section 6: Others
+***************************************************************************************/
+
+#ifdef CONFIG_DISABLE_WARNINGS
+    #define DISABLE_ALL_LIBRARY_WARNINGS
 #endif
 
 #endif // TFT_CONFIG_H

@@ -65,9 +65,20 @@
   #define DMA_BUSY_CHECK
 #endif
 
+// Handle high performance MHS RPi display type
+#if  defined (MHS_DISPLAY_TYPE)  && !defined (RPI_DISPLAY_TYPE)
+  #define RPI_DISPLAY_TYPE
+#endif
+
 #if !defined (RP2040_PIO_INTERFACE) // SPI
-  // Initialise processor specific SPI functions, used by init()
-  #define INIT_TFT_DATA_BUS  // Not used
+
+  #if  defined (MHS_DISPLAY_TYPE) // High speed RPi TFT type always needs 16 bit transfers
+    // This swaps to 16 bit mode, used for commands so wait avoids clash with DC timing
+    #define INIT_TFT_DATA_BUS hw_write_masked(&spi_get_hw(SPI_X)->cr0, (16 - 1) << SPI_SSPCR0_DSS_LSB, SPI_SSPCR0_DSS_BITS)
+  #else
+    // Initialise processor specific SPI functions, used by init()
+    #define INIT_TFT_DATA_BUS  // Not used
+  #endif
 
   // Wait for tx to end, flush rx FIFO, clear rx overrun
   #define SPI_BUSY_CHECK while (spi_get_hw(SPI_X)->sr & SPI_SSPSR_BSY_BITS) {};     \
@@ -82,9 +93,18 @@
 
   // Different controllers have different minimum write cycle periods, so the PIO clock is changed accordingly
   // The PIO clock is a division of the CPU clock so scales when the processor is overclocked
-  // PIO write frequency = (CPU clock/(4 * DIV_UNITS))
-  #if defined (TFT_PARALLEL_8_BIT) || defined (TFT_PARALLEL_16_BIT) || defined (RP2040_PIO_SPI)
-    #if defined (TFT_PARALLEL_16_BIT)
+  // PIO write frequency = (CPU clock/(4 * RP2040_PIO_CLK_DIV))
+  // The write cycle periods below assume a 125MHz CPU clock speed
+  #if defined (TFT_PARALLEL_8_BIT) || defined (TFT_PARALLEL_16_BIT)
+    #if defined (RP2040_PIO_CLK_DIV)
+      #if (RP2040_PIO_CLK_DIV > 0)
+        #define DIV_UNITS RP2040_PIO_CLK_DIV
+        #define DIV_FRACT 0
+      #else
+        #define DIV_UNITS 3
+        #define DIV_FRACT 0
+      #endif
+    #elif defined (TFT_PARALLEL_16_BIT)
       // Different display drivers have different minimum write cycle times
       #if defined (HX8357C_DRIVER) || defined (SSD1963_DRIVER)
         #define DIV_UNITS 1 // 32ns write cycle time SSD1963, HX8357C (maybe HX8357D?)
@@ -94,14 +114,9 @@
         #define DIV_UNITS 3 // 96ns write cycle time
       #endif
       #define DIV_FRACT 0
-    #else // 8 bit parallel mode
-      #ifdef ILI9481_DRIVER
-        #define DIV_UNITS 1
-        #define DIV_FRACT 160 // Note: Fractional values done with clock period dithering
-      #else
-        #define DIV_UNITS 1
-        #define DIV_FRACT 0
-      #endif
+    #else // 8 bit parallel mode default 64ns write cycle time
+      #define DIV_UNITS 2
+      #define DIV_FRACT 0 // Note: Fractional values done with clock period dithering
     #endif
   #endif
 
@@ -137,7 +152,7 @@
   #if !defined (RP2040_PIO_INTERFACE)// SPI
     //#define DC_C sio_hw->gpio_clr = (1ul << TFT_DC)
     //#define DC_D sio_hw->gpio_set = (1ul << TFT_DC)
-    #if  defined (RPI_DISPLAY_TYPE)
+    #if  defined (RPI_DISPLAY_TYPE) && !defined (MHS_DISPLAY_TYPE)
       #define DC_C digitalWrite(TFT_DC, LOW);
       #define DC_D digitalWrite(TFT_DC, HIGH);
     #else
@@ -150,8 +165,13 @@
     #define DC_C  WAIT_FOR_STALL; \
                   tft_pio->sm[pio_sm].instr = pio_instr_clr_dc
 
-    // Flush has happened before this and mode changed back to 16 bit
-    #define DC_D  tft_pio->sm[pio_sm].instr = pio_instr_set_dc
+    #ifndef RM68120_DRIVER
+      // Flush has happened before this and mode changed back to 16 bit
+      #define DC_D  tft_pio->sm[pio_sm].instr = pio_instr_set_dc
+    #else
+      // Need to wait for stall since RM68120 commands are 16 bit
+      #define DC_D  WAIT_FOR_STALL; tft_pio->sm[pio_sm].instr = pio_instr_set_dc
+    #endif
   #endif
 #endif
 
@@ -163,7 +183,7 @@
   #define CS_H // No macro allocated so it generates no code
 #else
   #if !defined (RP2040_PIO_INTERFACE) // SPI
-    #if  defined (RPI_DISPLAY_TYPE)
+    #if  defined (RPI_DISPLAY_TYPE) && !defined (MHS_DISPLAY_TYPE)
       #define CS_L digitalWrite(TFT_CS, LOW);
       #define CS_H digitalWrite(TFT_CS, HIGH);
     #else
@@ -283,7 +303,28 @@
   // Macros to write commands/pixel colour data to other displays
   ////////////////////////////////////////////////////////////////////////////////////////
   #else
-    #if  defined (RPI_DISPLAY_TYPE) // RPi TFT type always needs 16 bit transfers
+    #if  defined (MHS_DISPLAY_TYPE) // High speed RPi TFT type always needs 16 bit transfers
+      // This swaps to 16 bit mode, used for commands so wait avoids clash with DC timing
+      #define tft_Write_8(C)      while (spi_get_hw(SPI_X)->sr & SPI_SSPSR_BSY_BITS) {}; \
+                                  hw_write_masked(&spi_get_hw(SPI_X)->cr0, (16 - 1) << SPI_SSPCR0_DSS_LSB, SPI_SSPCR0_DSS_BITS); \
+                                  spi_get_hw(SPI_X)->dr = (uint32_t)((C) | ((C)<<8)); \
+                                  while (spi_get_hw(SPI_X)->sr & SPI_SSPSR_BSY_BITS) {}; \
+
+      // Note: the following macros do not wait for the end of transmission
+
+      #define tft_Write_16(C)     while (!spi_is_writable(SPI_X)){}; spi_get_hw(SPI_X)->dr = (uint32_t)(C)
+
+      #define tft_Write_16N(C)    while (!spi_is_writable(SPI_X)){}; spi_get_hw(SPI_X)->dr = (uint32_t)(C)
+
+      #define tft_Write_16S(C)    while (!spi_is_writable(SPI_X)){}; spi_get_hw(SPI_X)->dr = (uint32_t)(C)<<8 | (C)>>8
+
+      #define tft_Write_32(C)     spi_get_hw(SPI_X)->dr = (uint32_t)((C)>>16); spi_get_hw(SPI_X)->dr = (uint32_t)(C)
+
+      #define tft_Write_32C(C,D)  spi_get_hw(SPI_X)->dr = (uint32_t)(C); spi_get_hw(SPI_X)->dr = (uint32_t)(D)
+
+      #define tft_Write_32D(C)    spi_get_hw(SPI_X)->dr = (uint32_t)(C); spi_get_hw(SPI_X)->dr = (uint32_t)(C)
+
+    #elif  defined (RPI_DISPLAY_TYPE) // RPi TFT type always needs 16 bit transfers
       #define tft_Write_8(C)   spi.transfer(C); spi.transfer(C)
       #define tft_Write_16(C)  spi.transfer((uint8_t)((C)>>8));spi.transfer((uint8_t)((C)>>0))
       #define tft_Write_16N(C) spi.transfer((uint8_t)((C)>>8));spi.transfer((uint8_t)((C)>>0))
@@ -370,9 +411,9 @@
   #define TX_FIFO  tft_pio->txf[pio_sm]
 
   // Temporary - to be deleted
-  #define dir_mask 0
+  #define GPIO_DIR_MASK 0
 
-  #if  defined (SPI_18BIT_DRIVER) // SPI 18 bit colour
+  #if  defined (SPI_18BIT_DRIVER)  || defined (SSD1963_DRIVER) // 18 bit colour (3 bytes)
       // This writes 8 bits, then switches back to 16 bit mode automatically
       // Have already waited for pio stalled (last data write complete) when DC switched to command mode
       // The wait for stall allows DC to be changed immediately afterwards
