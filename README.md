@@ -32,3 +32,8 @@ An ESP32S3 development board that can freely use WIFI, BLE, TF, LED, TFT_LCD fun
 > ESP-IDF:
 > - The installation method is also inconsistent depending on the system, it is recommended to refer to the [official manual](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/index.html) for installation
 
+
+## Precautions for factory example:
+1. You need to use the [esp32fs plugin](https://github.com/me-no-dev/arduino-esp32fs-plugin/issues) . The `Arduino 2.x` version does not support the `esp32fs plugin`. Please use `Arduino 1.18.x` to upload resource files.Please refer to the plugin homepage for specific installation and usage methods
+2. Please use <Arduino IDE 2.x> during compilation. Please refer to the following figure for specific options
+    ![](./image/opt.png)
