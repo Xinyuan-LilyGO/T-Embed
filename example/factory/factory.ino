@@ -18,7 +18,6 @@
 // #include <NimBLEDevice.h>  // https://github.com/h2zero/NimBLE-Arduino
 #include <OneButton.h>     // https://github.com/mathertel/OneButton
 #include <RotaryEncoder.h> // https://github.com/mathertel/RotaryEncoder
-/* To use Arduino, you need to place lv_conf.h in the \Arduino\libraries directory */
 #include "lv_conf.h"
 #include <lvgl.h> // https://github.com/lvgl/lvgl
 
