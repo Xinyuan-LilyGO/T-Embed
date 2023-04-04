@@ -38,3 +38,12 @@ An ESP32S3 development board that can freely use WIFI, BLE, TF, LED, TFT_LCD fun
 2. Please use <Arduino IDE 2.x> during compilation. Please refer to the following figure for specific options
     ![](./image/opt.png)
 3. The Arduino IDE prompts whether to update the library. Please do not click Upgrade, otherwise the configuration file of [TFT_ESPI] will be overwritten.
+
+
+
+## Tips
+
+- The program can be written normally, but there is still no display after writing
+    1. There are factory test files in the firmware folder, which can be flashed into the board to check whether the board is normal. If there is still no display, then it can be judged that there is a problem with the board or the screen
+    2. Delete the <TFT_eSPI> in the libraries, and replace the <TFT_eSPI> in the <lib> folder of the main page to the libraries directory
+    3. When opening the Arduino IDE, it prompts whether to upgrade the library, please choose not to upgrade, otherwise it will overwrite the configuration of the <TFT_eSPI> display
