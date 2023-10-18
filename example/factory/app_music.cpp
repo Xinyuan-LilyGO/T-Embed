@@ -17,8 +17,8 @@ extern QueueHandle_t play_time_queue;
 extern EventGroupHandle_t global_event_group;
 
 static void select_song_event_cb(lv_event_t *e);
-static lv_obj_t *create_music_btn(lv_obj_t *parent, lv_align_t align, lv_coord_t x_ofs, lv_coord_t y_ofs, char *symbol);
-static void find_file(fs::FS &fs, const char *dirname, uint8_t levels, String &output, char *file_type);
+static lv_obj_t *create_music_btn(lv_obj_t *parent, lv_align_t align, lv_coord_t x_ofs, lv_coord_t y_ofs,const char *symbol);
+static void find_file(fs::FS &fs, const char *dirname, uint8_t levels, String &output,const char *file_type);
 
 static void play_event_cb(lv_event_t *e);
 static void drag_music_time_event_cb(lv_event_t *e);
@@ -88,7 +88,7 @@ void app_music_load(lv_obj_t *cont) {
   lv_obj_add_event_cb(music_param.stop, stop_event_cb, LV_EVENT_CLICKED, NULL);
 }
 
-static lv_obj_t *create_music_btn(lv_obj_t *parent, lv_align_t align, lv_coord_t x_ofs, lv_coord_t y_ofs, char *symbol) {
+static lv_obj_t *create_music_btn(lv_obj_t *parent, lv_align_t align, lv_coord_t x_ofs, lv_coord_t y_ofs,const char *symbol) {
   lv_obj_t *btn = lv_btn_create(parent);
   lv_obj_set_size(btn, 30, 30);
   lv_obj_set_style_radius(btn, 90, 0);
@@ -103,7 +103,7 @@ static lv_obj_t *create_music_btn(lv_obj_t *parent, lv_align_t align, lv_coord_t
 }
 
 // Traverse SD card MP3 files
-static void find_file(fs::FS &fs, const char *dirname, uint8_t levels, String &output, char *file_type) {
+static void find_file(fs::FS &fs, const char *dirname, uint8_t levels, String &output,const char *file_type) {
 
   File root = fs.open(dirname);
   if (!root) {

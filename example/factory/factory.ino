@@ -73,7 +73,7 @@ void wav_task(void *param);
 void led_task(void *param);
 void mic_spk_task(void *param);
 void mic_fft_task(void *param);
-static lv_obj_t *create_btn(lv_obj_t *parent, char *text);
+static lv_obj_t *create_btn(lv_obj_t *parent,const char *text);
 void timeavailable(struct timeval *t);
 void printLocalTime();
 void SD_init(void);
@@ -293,7 +293,6 @@ void ui_task(void *param)
 
     while (1) {
         delay(1);
-
         button.tick();
         lv_timer_handler();
 
@@ -328,7 +327,7 @@ void ui_task(void *param)
     vTaskDelete(NULL);
 }
 
-static lv_obj_t *create_btn(lv_obj_t *parent, char *text)
+static lv_obj_t *create_btn(lv_obj_t *parent,const char *text)
 {
 
     lv_obj_t *btn = lv_btn_create(parent);

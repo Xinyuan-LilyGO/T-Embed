@@ -123,7 +123,7 @@ void FFT_Install()
         .sample_rate = ADC_SAMPLE_RATE,                  // 设置采样率
         .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,    // 设置采样深度
         .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,     // 设置左右声道
-        .communication_format = I2S_COMM_FORMAT_I2S, // 设置交流格式
+        .communication_format = I2S_COMM_FORMAT_STAND_I2S, // 设置交流格式
         .intr_alloc_flags = 0,           // 设置用来分配中断
         .dma_buf_count = 2,              // 设置 DMA Buffer 计数
         .dma_buf_len = ADC_SAMPLE_COUNT, // 设置 DMA Buffer 长度

@@ -9,7 +9,8 @@
 #define MSG_NEW_MIN    2
 #define MSG_NEW_VOLT   3
 
-#define LV_DELAY(x)   {uint32_t t = x; do { lv_timer_handler();delay(1);} while (0);}
+
+
 
 void self_test(void);
 void ui_switch_page(void);

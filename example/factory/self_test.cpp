@@ -3,9 +3,13 @@
 #include "SD_MMC.h"
 #include "WiFi.h"
 #include "pin_config.h"
-#include "sntp.h"
+#include "esp_sntp.h"
 #include "time.h"
 #include <lvgl.h>
+
+#ifndef LV_DELAY
+#define LV_DELAY(x)   {uint32_t t = x; do { lv_timer_handler();delay(1);} while (0);}
+#endif
 
 LV_IMG_DECLARE(lilygo2_gif);
 LV_FONT_DECLARE(alibaba_font_60);
