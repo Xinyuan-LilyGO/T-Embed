@@ -323,15 +323,8 @@ void _lv_disp_refr_timer(lv_timer_t * tmr)
 
     refr_invalid_areas();
 
-
     /*If refresh happened ...*/
     if(disp_refr->inv_p != 0) {
-        if(disp_refr->driver->full_refresh) {
-            lv_area_t disp_area;
-            lv_area_set(&disp_area, 0, 0, lv_disp_get_hor_res(disp_refr) - 1, lv_disp_get_ver_res(disp_refr) - 1);
-            disp_refr->driver->draw_ctx->buf_area = &disp_area;
-            draw_buf_flush(disp_refr);
-        }
 
         /*Clean up*/
         lv_memset_00(disp_refr->inv_areas, sizeof(disp_refr->inv_areas));
@@ -433,14 +426,11 @@ void _lv_disp_refr_timer(lv_timer_t * tmr)
         uint32_t used_size = mon.total_size - mon.free_size;;
         uint32_t used_kb = used_size / 1024;
         uint32_t used_kb_tenth = (used_size - (used_kb * 1024)) / 102;
-        uint32_t max_size = mon.max_used;
-        uint32_t max_kb = max_size / 1024;
-        uint32_t max_kb_tenth = (max_size - (max_kb * 1024)) / 102;
         lv_label_set_text_fmt(mem_label,
                               "%"LV_PRIu32 ".%"LV_PRIu32 " kB used (%d %%)\n"
-                              "%"LV_PRIu32 ".%"LV_PRIu32 " kB max, %d%% frag.",
+                              "%d%% frag.",
                               used_kb, used_kb_tenth, mon.used_pct,
-                              max_kb, max_kb_tenth, mon.frag_pct);
+                              mon.frag_pct);
     }
 #endif
 
@@ -623,9 +613,15 @@ static void refr_area_part(lv_draw_ctx_t * draw_ctx)
 {
     lv_disp_draw_buf_t * draw_buf = lv_disp_get_draw_buf(disp_refr);
 
+    if(draw_ctx->init_buf)
+        draw_ctx->init_buf(draw_ctx);
+
     /* Below the `area_p` area will be redrawn into the draw buffer.
-     * In single buffered mode wait here until the buffer is freed.*/
-    if(draw_buf->buf1 && !draw_buf->buf2) {
+     * In single buffered mode wait here until the buffer is freed.
+     * In full double buffered mode wait here while the buffers are swapped and a buffer becomes available*/
+    bool full_sized = draw_buf->size == (uint32_t)disp_refr->driver->hor_res * disp_refr->driver->ver_res;
+    if((draw_buf->buf1 && !draw_buf->buf2) ||
+       (draw_buf->buf1 && draw_buf->buf2 && full_sized)) {
         while(draw_buf->flushing) {
             if(disp_refr->driver->wait_cb) disp_refr->driver->wait_cb(disp_refr->driver);
         }
@@ -713,11 +709,7 @@ static void refr_area_part(lv_draw_ctx_t * draw_ctx)
     refr_obj_and_children(draw_ctx, lv_disp_get_layer_top(disp_refr));
     refr_obj_and_children(draw_ctx, lv_disp_get_layer_sys(disp_refr));
 
-    /*In true double buffered mode flush only once when all areas were rendered.
-     *In normal mode flush after every area*/
-    if(disp_refr->driver->full_refresh == false) {
-        draw_buf_flush(disp_refr);
-    }
+    draw_buf_flush(disp_refr);
 }
 
 /**
@@ -732,7 +724,7 @@ static lv_obj_t * lv_refr_get_top_obj(const lv_area_t * area_p, lv_obj_t * obj)
 
     if(_lv_area_is_in(area_p, &obj->coords, 0) == false) return NULL;
     if(lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN)) return NULL;
-    if(_lv_obj_get_layer_type(obj)) return NULL;
+    if(_lv_obj_get_layer_type(obj) != LV_LAYER_TYPE_NONE) return NULL;
 
     /*If this object is fully cover the draw area then check the children too*/
     lv_cover_check_info_t info;
@@ -741,9 +733,9 @@ static lv_obj_t * lv_refr_get_top_obj(const lv_area_t * area_p, lv_obj_t * obj)
     lv_event_send(obj, LV_EVENT_COVER_CHECK, &info);
     if(info.res == LV_COVER_RES_MASKED) return NULL;
 
-    uint32_t i;
-    uint32_t child_cnt = lv_obj_get_child_cnt(obj);
-    for(i = 0; i < child_cnt; i++) {
+    int32_t i;
+    int32_t child_cnt = lv_obj_get_child_cnt(obj);
+    for(i = child_cnt - 1; i >= 0; i--) {
         lv_obj_t * child = obj->spec_attr->children[i];
         found_p = lv_refr_get_top_obj(area_p, child);
 
@@ -925,6 +917,13 @@ void refr_obj(lv_draw_ctx_t * draw_ctx, lv_obj_t * obj)
             .y = lv_obj_get_style_transform_pivot_y(obj, 0)
         };
 
+        if(LV_COORD_IS_PCT(pivot.x)) {
+            pivot.x = (LV_COORD_GET_PCT(pivot.x) * lv_area_get_width(&obj->coords)) / 100;
+        }
+        if(LV_COORD_IS_PCT(pivot.y)) {
+            pivot.y = (LV_COORD_GET_PCT(pivot.y) * lv_area_get_height(&obj->coords)) / 100;
+        }
+
         lv_draw_img_dsc_t draw_dsc;
         lv_draw_img_dsc_init(&draw_dsc);
         draw_dsc.opa = opa;
@@ -958,7 +957,7 @@ void refr_obj(lv_draw_ctx_t * draw_ctx, lv_obj_t * obj)
             if((flags & LV_DRAW_LAYER_FLAG_CAN_SUBDIVIDE) == 0) break;
 
             layer_ctx->area_act.y1 = layer_ctx->area_act.y2 + 1;
-            layer_ctx->area_act.y2 += layer_ctx->area_act.y1 + layer_ctx->max_row_with_no_alpha;
+            layer_ctx->area_act.y2 = layer_ctx->area_act.y1 + layer_ctx->max_row_with_no_alpha - 1;
         }
 
         lv_draw_layer_destroy(draw_ctx, layer_ctx);
@@ -1028,7 +1027,7 @@ static void draw_buf_rotate_180(lv_disp_drv_t * drv, lv_area_t * area, lv_color_
     area->x1 = drv->hor_res - tmp_coord - 1;
 }
 
-static LV_ATTRIBUTE_FAST_MEM void draw_buf_rotate_90(bool invert_i, lv_coord_t area_w, lv_coord_t area_h,
+static void LV_ATTRIBUTE_FAST_MEM draw_buf_rotate_90(bool invert_i, lv_coord_t area_w, lv_coord_t area_h,
                                                      lv_color_t * orig_color_p, lv_color_t * rot_buf)
 {
 
@@ -1192,24 +1191,13 @@ static void draw_buf_flush(lv_disp_t * disp)
     lv_draw_ctx_t * draw_ctx = disp->driver->draw_ctx;
     if(draw_ctx->wait_for_finish) draw_ctx->wait_for_finish(draw_ctx);
 
-    /* In double buffered mode wait until the other buffer is freed
+    /* In partial double buffered mode wait until the other buffer is freed
      * and driver is ready to receive the new buffer */
-    if(draw_buf->buf1 && draw_buf->buf2) {
+    bool full_sized = draw_buf->size == (uint32_t)disp_refr->driver->hor_res * disp_refr->driver->ver_res;
+    if(draw_buf->buf1 && draw_buf->buf2 && !full_sized) {
         while(draw_buf->flushing) {
             if(disp_refr->driver->wait_cb) disp_refr->driver->wait_cb(disp_refr->driver);
         }
-
-        /*If the screen is transparent initialize it when the flushing is ready*/
-#if LV_COLOR_SCREEN_TRANSP
-        if(disp_refr->driver->screen_transp) {
-            if(disp_refr->driver->clear_cb) {
-                disp_refr->driver->clear_cb(disp_refr->driver, disp_refr->driver->draw_buf->buf_act, disp_refr->driver->draw_buf->size);
-            }
-            else {
-                lv_memset_00(disp_refr->driver->draw_buf->buf_act, disp_refr->driver->draw_buf->size * LV_IMG_PX_SIZE_ALPHA_BYTE);
-            }
-        }
-#endif
     }
 
     draw_buf->flushing = 1;
@@ -1228,6 +1216,7 @@ static void draw_buf_flush(lv_disp_t * disp)
             call_flush_cb(disp->driver, draw_ctx->buf_area, draw_ctx->buf);
         }
     }
+
     /*If there are 2 buffers swap them. With direct mode swap only on the last area*/
     if(draw_buf->buf1 && draw_buf->buf2 && (!disp->driver->direct_mode || flushing_last)) {
         if(draw_buf->buf_act == draw_buf->buf1)
