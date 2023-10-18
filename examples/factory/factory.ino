@@ -24,6 +24,8 @@
 #include <RotaryEncoder.h> // https://github.com/mathertel/RotaryEncoder
 #include "lv_conf.h"
 #include <lvgl.h> // https://github.com/lvgl/lvgl
+#include <RadioLib.h>
+#include <Adafruit_PN532.h>
 
 typedef struct {
     uint8_t cmd;
@@ -67,10 +69,32 @@ QueueHandle_t play_music_queue;
 QueueHandle_t play_time_queue;
 static EventGroupHandle_t lv_input_event;
 
+static TaskHandle_t radioTaskHandler;
+static TaskHandle_t  nfcTaskHandler;
+
+u32_t radio_task_delay_ms = 200;
+
+// Flag to indicate transmission or reception state
+static bool transmitFlag = false;
+// Save transmission states between loops
+static int transmissionState = RADIOLIB_ERR_NONE;
+// Flag to indicate that a packet was sent or received
+static bool radioTransmitFlag = false;
+
+SPIClass radioBus =  SPIClass(HSPI);
+CC1101 radio = new Module(RADIO_CS_PIN, PIN_IIC_SDA, RADIOLIB_NC, PIN_IIC_SCL, radioBus);
+//Adafruit_PN532 nfc(PIN_SD_SCK, PIN_SD_MISO, PIN_SD_MOSI,NFC_CS);
+Adafruit_PN532 nfc(NFC_CS, &radioBus);
+
+extern int nfc_init_succeed;
+extern int radio_init_succeed;
+extern lv_timer_t *transmitTask;
 
 void ui_task(void *param);
 void wav_task(void *param);
 void led_task(void *param);
+void radio_task(void *param);
+void nfc_task(void *param);
 void mic_spk_task(void *param);
 void mic_fft_task(void *param);
 static lv_obj_t *create_btn(lv_obj_t *parent,const char *text);
@@ -115,6 +139,10 @@ void setup()
 
     pinMode(PIN_POWER_ON, OUTPUT);
     digitalWrite(PIN_POWER_ON, HIGH);
+
+    pinMode(RADIO_CS_PIN, OUTPUT);
+    digitalWrite(RADIO_CS_PIN, HIGH);
+
     Serial.begin(115200);
     Serial.printf("psram size : %d kb\r\n", ESP.getPsramSize() / 1024);
     Serial.printf("FLASH size : %d kb\r\n", ESP.getFlashChipSize() / 1024);
@@ -126,6 +154,13 @@ void setup()
 
     xTaskCreatePinnedToCore(led_task, "led_task", 1024 * 2, led_setting_queue, 0, NULL, 0);
     xTaskCreatePinnedToCore(ui_task, "ui_task", 1024 * 40, NULL, 3, NULL, 1);
+
+    radio_init();
+    xTaskCreate(radio_task, "radio_task", 2048, NULL, 10, &radioTaskHandler);
+
+    xTaskCreate(nfc_task, "nfc_task", 2048, NULL, 10, &nfcTaskHandler);
+
+
 }
 
 void loop()
@@ -295,7 +330,8 @@ void ui_task(void *param)
         delay(1);
         button.tick();
         lv_timer_handler();
-
+        set_text_radio_ta(NULL, 1);
+        set_nfc_message_label(NULL, 1);
         RotaryEncoder::Direction dir = encoder.getDirection();
         if (dir != RotaryEncoder::Direction::NOROTATION) {
             if (dir != RotaryEncoder::Direction::CLOCKWISE) {
@@ -362,6 +398,228 @@ rgb_color hsvToRgb(uint16_t h, uint8_t s, uint8_t v)
     return rgb_color(r, g, b);
 }
 // clang-format on
+
+
+void suspend_nfcTaskHandler(void)
+{
+    vTaskSuspend(nfcTaskHandler);
+}
+
+void resume_nfcTaskHandler(void)
+{
+    vTaskResume(nfcTaskHandler);
+}
+
+void suspend_radioTaskHandler(void)
+{
+    vTaskSuspend(radioTaskHandler);
+}
+
+void resume_radioTaskHandler(void)
+{
+    vTaskResume(radioTaskHandler);
+}
+
+// clang-format on
+void radio_task(void * param)
+{
+    digitalWrite(RADIO_CS_PIN, HIGH);
+    Serial.print("==========radio_init sta===========\r\n");
+    //radio_init();
+    Serial.print("radio_init end\r\n");
+
+    suspend_radioTaskHandler();
+
+    while(1)
+    {
+        if(radio_init_succeed)
+            radioTask(NULL);
+
+        delay(radio_task_delay_ms);
+    }
+}
+
+
+
+void uint8_to_hexstr(uint8_t *in_data,int len,char *out_data)
+{
+    int i = 0, out_cont = 0;
+    for(i = 0; i < len; i++)
+    {
+        //Serial.printf("in_data[%d] = %d ", i, in_data[i]);
+        if(in_data[i] > 15)
+        {
+            out_data[out_cont++] = (in_data[i]/16) >= 10?('A'+(in_data[i]/16)-10):('0'+in_data[i]/16);
+        }
+        else 
+            out_data[out_cont++] = '0';
+        out_data[out_cont++] = (in_data[i]%16) >= 10?('A'+(in_data[i]%16)-10):('0'+in_data[i]%16);
+        out_data[out_cont++] = ' ';
+    }
+    out_data[out_cont] = '\0';
+}
+
+void nfc_task(void *param)
+{
+    pinMode(PIN_SD_CS, OUTPUT);
+    digitalWrite(PIN_SD_CS, HIGH);
+
+    //pinMode(NFC_CS, OUTPUT);
+    digitalWrite(NFC_CS, LOW);
+    nfc.begin();
+    uint32_t versiondata = nfc.getFirmwareVersion();
+    if (! versiondata) {
+        Serial.print("Didn't find PN53x board");
+        nfc_init_succeed = 0;
+        
+        //while (1); // halt
+    }
+    else 
+    {
+        nfc_init_succeed = 1;
+        // Got ok data, print it out!
+        Serial.print("Found chip PN5"); Serial.println((versiondata>>24) & 0xFF, HEX);
+        Serial.print("Firmware ver. "); Serial.print((versiondata>>16) & 0xFF, DEC);
+        Serial.print('.'); Serial.println((versiondata>>8) & 0xFF, DEC);
+        Serial.println("Waiting for an ISO14443A Card ...");
+    }
+
+
+    digitalWrite(NFC_CS, HIGH);
+    suspend_nfcTaskHandler();
+
+    uint32_t nfc_Success_count = 0;
+
+    if(!nfc_init_succeed)
+    {
+        while(1)
+        {
+            delay(100);
+        }
+    }
+
+    while(1)
+    {
+        delay(100);
+        //Serial.println("delay(10)\n");
+        uint8_t success;
+        uint8_t uid[] = { 0, 0, 0, 0, 0, 0, 0 };  // Buffer to store the returned UID
+        uint8_t uidLength;                        // Length of the UID (4 or 7 bytes depending on ISO14443A card type)
+
+        // Wait for an ISO14443A type cards (Mifare, etc.).  When one is found
+        // 'uid' will be populated with the UID, and uidLength will indicate
+        // if the uid is 4 bytes (Mifare Classic) or 7 bytes (Mifare Ultralight)
+        Serial.println("readPassiveTargetID sta\n");
+        success = nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &uidLength);
+        Serial.printf("readPassiveTargetID end =%d=\n", success);
+        if (success) {
+            char text_nfc_data[200] = {0};
+            nfc_Success_count++;
+            // Display some basic information about the card
+            Serial.println("Found an ISO14443A card");
+            Serial.print("  UID Length: ");Serial.print(uidLength, DEC);Serial.println(" bytes");
+            Serial.print("  UID Value: ");
+            nfc.PrintHex(uid, uidLength);
+            Serial.println("");
+
+            if (uidLength == 4)
+            {
+            // We probably have a Mifare Classic card ...
+            Serial.println("Seems to be a Mifare Classic card (4 byte UID)");
+
+            // Now we need to try to authenticate it for read/write access
+            // Try with the factory default KeyA: 0xFF 0xFF 0xFF 0xFF 0xFF 0xFF
+            Serial.println("Trying to authenticate block 4 with default KEYA value");
+            uint8_t keya[6] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
+
+            // Start with block 4 (the first block of sector 1) since sector 0
+            // contains the manufacturer data and it's probably better just
+            // to leave it alone unless you know what you're doing
+            success = nfc.mifareclassic_AuthenticateBlock(uid, uidLength, 4, 0, keya);
+
+            if (success)
+            {
+                Serial.println("Sector 1 (Blocks 4..7) has been authenticated");
+                uint8_t data[16];
+
+                // If you want to write something to block 4 to test with, uncomment
+                // the following line and this text should be read back in a minute
+                //memcpy(data, (const uint8_t[]){ 'a', 'd', 'a', 'f', 'r', 'u', 'i', 't', '.', 'c', 'o', 'm', 0, 0, 0, 0 }, sizeof data);
+                // success = nfc.mifareclassic_WriteDataBlock (4, data);
+
+                // Try to read the contents of block 4
+                success = nfc.mifareclassic_ReadDataBlock(4, data);
+
+                if (success)
+                {
+                // Data seems to have been read ... spit it out
+                Serial.println("Reading Block 4:");
+                nfc.PrintHexChar(data, 16);
+                Serial.println("");
+
+                //sprintf(text_radio_data, "Sector 1 (Blocks" );
+                sprintf(text_nfc_data, "Success recognition count: %d\n", nfc_Success_count);
+                sprintf(&text_nfc_data[strlen(text_nfc_data)], "Seems to be a Mifare Classic card (4 byte UID)\nUID Value: " );
+                uint8_to_hexstr(uid, 4, &text_nfc_data[strlen(text_nfc_data)]);
+                sprintf(&text_nfc_data[strlen(text_nfc_data)], "\nSector 1 (Blocks 4..7) has been authenticated" );
+
+                set_nfc_message_label(text_nfc_data, 0);
+                // Wait a bit before reading the card again
+                delay(1000);
+                }
+                else
+                {
+                Serial.println("Ooops ... unable to read the requested block.  Try another key?");
+                }
+            }
+            else
+            {
+                sprintf(text_nfc_data, "Success recognition count: %d\n", nfc_Success_count);
+                sprintf(&text_nfc_data[strlen(text_nfc_data)], "Seems to be a Mifare Ultralight tag (7 byte UID)\nUID Value: " );
+                uint8_to_hexstr(uid, 4, &text_nfc_data[strlen(text_nfc_data)]);
+                sprintf(&text_nfc_data[strlen(text_nfc_data)], "\nOoops ... authentication failed: Try another key?" );
+                set_nfc_message_label(text_nfc_data, 0);
+
+                Serial.println("Ooops ... authentication failed: Try another key?");
+            }
+            }
+
+            if (uidLength == 7)
+            {
+            // We probably have a Mifare Ultralight card ...
+            Serial.println("Seems to be a Mifare Ultralight tag (7 byte UID)");
+
+            // Try to read the first general-purpose user page (#4)
+            Serial.println("Reading page 4");
+            uint8_t data[32];
+            success = nfc.mifareultralight_ReadPage (4, data);
+            if (success)
+            {
+                // Data seems to have been read ... spit it out
+                nfc.PrintHexChar(data, 4);
+                Serial.println("");
+                sprintf(text_nfc_data, "Success recognition count: %d\n", nfc_Success_count);
+                sprintf(&text_nfc_data[strlen(text_nfc_data)], "Seems to be a Mifare Ultralight tag (7 byte UID)\nUID Value: " );
+                uint8_to_hexstr(uid, 4, &text_nfc_data[strlen(text_nfc_data)]);
+                sprintf(&text_nfc_data[strlen(text_nfc_data)], "\nSector 1 (Blocks 4..7) has been authenticated" );
+                set_nfc_message_label(text_nfc_data, 0);
+                // Wait a bit before reading the card again
+                delay(1000);
+            }
+            else
+            {
+                sprintf(text_nfc_data, "Success recognition count: %d\n", nfc_Success_count);
+                sprintf(&text_nfc_data[strlen(text_nfc_data)], "Seems to be a Mifare Ultralight tag (7 byte UID)\nUID Value: " );
+                uint8_to_hexstr(uid, 4, &text_nfc_data[strlen(text_nfc_data)]);
+                sprintf(&text_nfc_data[strlen(text_nfc_data)], "\nOoops ... unable to read the requested page!?" );
+                set_nfc_message_label(text_nfc_data, 0);
+
+                Serial.println("Ooops ... unable to read the requested page!?");
+            }
+            }
+        }
+    }
+}
 
 void led_task(void *param)
 {
@@ -645,4 +903,406 @@ void mic_fft_task(void *param)
         }
     }
     vTaskDelete(NULL);
+}
+
+
+// flag to indicate that a packet was received
+//volatile bool receivedFlag = false;
+// disable interrupt when it's not needed
+volatile bool enableInterrupt = true;
+// this function is called when a complete packet
+// is received by the module
+// IMPORTANT: this function MUST be 'void' type
+//            and MUST NOT have any arguments!
+void setFlag(void) {
+  // check if the interrupt is enabled
+  if(!enableInterrupt) {
+    return;
+  }
+
+  // we got a packet, set the flag
+  //receivedFlag = true;
+  radioTransmitFlag = true;
+}
+/*
+void setRadioFlag(void)
+{
+    radioTransmitFlag = true;
+}
+*/
+void radio_init(void)
+{
+    digitalWrite(PIN_SD_CS, HIGH);
+
+    pinMode(NFC_CS, OUTPUT);
+    digitalWrite(NFC_CS, HIGH);
+
+    pinMode(RADIO_SW1_PIN, OUTPUT);
+    pinMode(RADIO_SW0_PIN, OUTPUT);
+    digitalWrite(RADIO_SW0_PIN, HIGH);
+    digitalWrite(RADIO_SW1_PIN, LOW);
+
+    radioBus.begin(PIN_SD_SCK, PIN_SD_MISO, PIN_SD_MOSI);
+    // initialize CC1101 with default settings
+    Serial.print(F("[CC1101] Initializing ... "));
+    int state = radio.begin();
+    if (state == RADIOLIB_ERR_NONE) {
+        Serial.println(F("success!"));
+        radio_init_succeed = 1;
+    } else {
+        Serial.print(F("failed, code "));
+        Serial.println(state);
+        radio_init_succeed = 0;
+        return;
+        while (true);
+    }
+    // set carrier frequency to 433.5 MHz
+    if (radio.setFrequency(868.0) == RADIOLIB_ERR_INVALID_FREQUENCY) {
+        Serial.println(F("[CC1101] Selected frequency is invalid for this module!"));
+        while (true);
+    }
+
+    // set bit rate to 100.0 kbps
+    state = radio.setBitRate(5.0);
+    if (state == RADIOLIB_ERR_INVALID_BIT_RATE) {
+        Serial.println(F("[CC1101] Selected bit rate is invalid for this module!"));
+        while (true);
+    } else if (state == RADIOLIB_ERR_INVALID_BIT_RATE_BW_RATIO) {
+        Serial.println(F("[CC1101] Selected bit rate to bandwidth ratio is invalid!"));
+        Serial.println(F("[CC1101] Increase receiver bandwidth to set this bit rate."));
+        while (true);
+    }
+
+    // set receiver bandwidth to 250.0 kHz
+    if (radio.setRxBandwidth(135.0) == RADIOLIB_ERR_INVALID_RX_BANDWIDTH) {
+        Serial.println(F("[CC1101] Selected receiver bandwidth is invalid for this module!"));
+        while (true);
+    }
+
+    // set allowed frequency deviation to 10.0 kHz
+    if (radio.setFrequencyDeviation(30.0) == RADIOLIB_ERR_INVALID_FREQUENCY_DEVIATION) {
+        Serial.println(F("[CC1101] Selected frequency deviation is invalid for this module!"));
+        while (true);
+    }
+
+    // set output power to 5 dBm
+    if (radio.setOutputPower(10) == RADIOLIB_ERR_INVALID_OUTPUT_POWER) {
+        Serial.println(F("[CC1101] Selected output power is invalid for this module!"));
+        while (true);
+    }
+
+    // 2 bytes can be set as sync word
+    if (radio.setSyncWord(0x01, 0x23) == RADIOLIB_ERR_INVALID_SYNC_WORD) {
+        Serial.println(F("[CC1101] Selected sync word is invalid for this module!"));
+        while (true);
+    }
+    // set the function that will be called
+    // when new packet is received
+    radio.setGdo0Action(setFlag);
+
+    // start listening for packets
+    Serial.print(F("[CC1101] Starting to listen ... "));
+    state = radio.startReceive();
+    if (state == RADIOLIB_ERR_NONE) {
+        Serial.println(F("success!"));
+    } else {
+        Serial.print(F("failed, code "));
+        Serial.println(state);
+        while (true);
+  }
+  //digitalWrite(RADIO_CS_PIN, HIGH);
+}
+
+void radio_power_cb(lv_event_t *e)
+{
+    lv_obj_t *obj = lv_event_get_target(e);
+    char buf[32];
+    lv_dropdown_get_selected_str(obj, buf, sizeof(buf));
+    uint32_t id = lv_dropdown_get_selected(obj);
+    Serial.printf("Option: %s id:%u\n", buf, id);
+
+    /*bool isRunning = !transmitTask->paused;
+    if (isRunning) {
+        lv_timer_pause(transmitTask);
+        digitalWrite(RADIO_CS_PIN, HIGH);
+        radio.standby();
+    }*/
+
+    uint8_t dBm[] = {
+        2, 5, 10, 12, 17, 20, 22
+    };
+    if (id > sizeof(dBm) / sizeof(dBm[0])) {
+        Serial.println("invalid dBm params!");
+        return;
+    }
+    // set output power (accepted range is - 17 - 22 dBm)
+    if (radio.setOutputPower(dBm[id]) == RADIOLIB_ERR_INVALID_OUTPUT_POWER) {
+        Serial.println(F("Selected output power is invalid for this module!"));
+    }
+
+    if (transmitFlag) {
+        radio.startTransmit("");
+    } else {
+        radio.startReceive();
+    }
+
+    /*if (isRunning) {
+        digitalWrite(RADIO_CS_PIN, LOW);
+        //lv_timer_resume(transmitTask);
+    }*/
+}
+
+
+void float_to_str(float in_data, int decimal_place, char *out_data)
+{
+    int out_len_cont = 0;
+    u_int32_t divisor = 1, decimal_place_divisor = 1;
+    if(in_data < 0)
+    {
+        out_data[out_len_cont++] = '-';
+        in_data *= -1;
+    }
+
+    while((int)in_data / divisor > 0)
+    {
+        divisor*=10;
+    }
+
+    divisor/=10;
+
+    int i = 0;
+    while(i++ < decimal_place)
+    {
+        in_data*=10;
+        divisor*=10;
+        decimal_place_divisor *= 10;
+    }
+    
+    while(divisor >= decimal_place_divisor)
+    {
+        out_data[out_len_cont++] = (int)in_data/divisor+'0';
+        in_data = (int)in_data % divisor;
+        divisor/=10;
+    }
+    out_data[out_len_cont++] = '.';
+    while(decimal_place-- > 0)
+    {
+        out_data[out_len_cont++] = ((int)in_data)/divisor+'0';
+        in_data = (int)in_data % divisor;
+        divisor/=10;
+    }
+//Serial.printf("float_to_str end \n");
+}
+
+u_int32_t radio_tx_count = 0;
+u_int32_t radio_rx_count = 0;
+void radioTask(lv_timer_t *parent)
+{
+    char buf[256] = {0};
+    
+    // check if the previous operation finished
+    if (radioTransmitFlag) {
+        // reset flag
+        radioTransmitFlag = false;
+        enableInterrupt = false;
+
+        if (transmitFlag) {
+            //TX
+            // the previous operation was transmission, listen for response
+            // print the result
+            if (transmissionState == RADIOLIB_ERR_NONE) {
+                // packet was successfully sent
+                Serial.println(F("transmission finished!"));
+                radio_tx_count++;
+            } else {
+                Serial.print(F("failed, code "));
+                Serial.println(transmissionState);
+            }
+
+            lv_snprintf(buf, 256, "[%u]:Tx %s", radio_tx_count, transmissionState == RADIOLIB_ERR_NONE ? "Successed" : "Failed");
+            set_text_radio_ta(buf, 0);
+            transmissionState = radio.startTransmit("Hello World!");
+        } else {
+            // RX
+            // the previous operation was reception
+            // print data and send another packet
+            String str;
+            int state = radio.readData(str);
+
+            if (state == RADIOLIB_ERR_NONE) {
+                radio_rx_count++;
+                // packet was successfully received
+                Serial.println(F("[SX1262] Received packet!"));
+
+                // print data of the packet
+                Serial.print(F("[SX1262] Data:\t\t"));
+                Serial.println(str);
+
+                // print RSSI (Received Signal Strength Indicator)
+                Serial.print(F("[SX1262] RSSI:\t\t"));
+                float rssi_t = radio.getRSSI();
+                Serial.print(rssi_t);
+                Serial.println(F(" dBm"));
+
+                /*Serial.print(F("[SX1262] SNR:\t\t"));
+                Serial.print(radio.getSNR());
+                Serial.println(F(" dB"));*/
+                /*char rssi_str[30] = {0};
+                float_to_str(rssi_t, 2, rssi_str);
+                Serial.printf("=float_to_str:%s=\n", rssi_str);*/
+                
+                //lv_snprintf(buf, 256, "[%u]:Rx %s \nRSSI:%d.%d", radio_rx_count, str.c_str(), (int)rssi_t, (u16_t)((int)(rssi_t*100)%100));
+                lv_snprintf(buf, 256, "[%u]:Rx %s \n", radio_rx_count, str.c_str());
+                lv_snprintf(&buf[strlen(buf)], 256, "RSSI:%d.%d", (int)rssi_t, ((int)(rssi_t*100)%100)>0?((int)(rssi_t*100)%100):((int)(rssi_t*100)%100)*-1);
+                //lv_snprintf(&buf[strlen(buf)], 256, "RSSI:32.2356");
+                //Serial.printf("\n=====%s====\n", buf);
+                //lv_snprintf(buf, 256, "[%u]:Rx %s \nRSSI:%.2f", radio_rx_count, str.c_str(), radio.getRSSI());
+                //lv_snprintf(buf, 256, "[%d]:Rx %s \nRSSI:%s dBm", radio_rx_count, str.c_str(), rssi_str);
+                //sprintf(buf, "[%d]:Rx %s \nRSSI:%s dBm", radio_rx_count, str.c_str(), rssi_str);
+                set_text_radio_ta(buf, 0);
+            }
+
+            radio.startReceive();
+        }
+        enableInterrupt = true;
+    }
+}
+
+void radio_rxtx_cb(lv_event_t *e)
+{
+    lv_obj_t *obj = lv_event_get_target(e);
+    char buf[32];
+    lv_dropdown_get_selected_str(obj, buf, sizeof(buf));
+    uint32_t id = lv_dropdown_get_selected(obj);
+    Serial.printf("Option: %s id:%u\n", buf, id);
+    switch (id) {
+    case 0:
+        digitalWrite(RADIO_CS_PIN, LOW);
+        //lv_timer_resume(transmitTask);
+        // TX
+        // send the first packet on this node
+        Serial.print(F("[Radio] Sending first packet ... "));
+        transmissionState = radio.startTransmit("Hello World!");
+        transmitFlag = true;
+        resume_radioTaskHandler();
+        break;
+    case 1:
+        digitalWrite(RADIO_CS_PIN, LOW);
+        //lv_timer_resume(transmitTask);
+        // RX
+        Serial.print(F("[Radio] Starting to listen ... "));
+        if (radio.startReceive() == RADIOLIB_ERR_NONE) {
+            Serial.println(F("success!"));
+        } else {
+            Serial.println(F("failed "));
+        }
+        transmitFlag = false;
+        set_text_radio_ta("[RX]:Listening.", 0);
+        resume_radioTaskHandler();
+        break;
+    case 2:
+        /*if (!transmitTask->paused) {
+            set_text_radio_ta("Radio has disable.");
+            digitalWrite(RADIO_CS_PIN, HIGH);
+            lv_timer_pause(transmitTask);
+            radio.standby();
+        }*/
+        suspend_radioTaskHandler();
+        break;
+    default:
+        break;
+    }
+}
+
+void radio_bandwidth_cb(lv_event_t *e)
+{
+    lv_obj_t *obj = lv_event_get_target(e);
+    char buf[32];
+    lv_dropdown_get_selected_str(obj, buf, sizeof(buf));
+    uint32_t id = lv_dropdown_get_selected(obj);
+    Serial.printf("Option: %s id:%u\n", buf, id);
+
+    // set carrier bandwidth
+    const float bw[] = {125.0, 250.0, 500.0};
+    if (id > sizeof(bw) / sizeof(bw[0])) {
+        Serial.println("invalid bandwidth params!");
+        return;
+    }
+
+    /*bool isRunning = !transmitTask->paused;
+    if (isRunning) {
+        digitalWrite(RADIO_CS_PIN, HIGH);
+        lv_timer_pause(transmitTask);
+        radio.standby();
+    }*/
+
+    radio.standby();
+    // set bandwidth
+    if (radio.setRxBandwidth(bw[id]) == RADIOLIB_ERR_INVALID_BANDWIDTH) {
+        Serial.println(F("Selected bandwidth is invalid for this module!"));
+    }
+
+    if (transmitFlag) {
+        radio.startTransmit("");
+    } else {
+        radio.startReceive();
+    }
+
+    /*if (isRunning) {
+        digitalWrite(RADIO_CS_PIN, LOW);
+        //lv_timer_resume(transmitTask);
+    }*/
+}
+
+void radio_freq_cb(lv_event_t *e)
+{
+    lv_obj_t *obj = lv_event_get_target(e);
+    char buf[32];
+    lv_dropdown_get_selected_str(obj, buf, sizeof(buf));
+    uint32_t id = lv_dropdown_get_selected(obj);
+    Serial.printf("Option: %s id:%u\n", buf, id);
+
+    // set carrier frequency
+    const float freq[] = {301.0, 315.0, 434.0, 868.0, 915.0};
+    if (id > sizeof(freq) / sizeof(freq[0])) {
+        Serial.println("invalid params!");
+        return;
+    }
+
+    if(id <= 1)
+    {
+        digitalWrite(RADIO_SW0_PIN, LOW);
+        digitalWrite(RADIO_SW1_PIN, HIGH);
+    }
+    if(id >= 3)
+    {
+        digitalWrite(RADIO_SW0_PIN, HIGH);
+        digitalWrite(RADIO_SW1_PIN, LOW);
+    }
+    else 
+    {
+        digitalWrite(RADIO_SW0_PIN, HIGH);
+        digitalWrite(RADIO_SW1_PIN, HIGH);
+    }
+   /* bool isRunning = !transmitTask->paused;
+    if (isRunning) {
+        digitalWrite(RADIO_CS_PIN, HIGH);
+        lv_timer_pause(transmitTask);
+    }*/
+    digitalWrite(RADIO_CS_PIN, HIGH);
+
+    if (radio.setFrequency(freq[id]) == RADIOLIB_ERR_INVALID_FREQUENCY) {
+        Serial.println(F("Selected frequency is invalid for this module!"));
+    }
+
+    if (transmitFlag) {
+        radio.startTransmit("");
+    } else {
+        radio.startReceive();
+    }
+
+    /*if (isRunning) {
+        digitalWrite(RADIO_CS_PIN, LOW);
+        //lv_timer_resume(transmitTask);
+    }*/
 }

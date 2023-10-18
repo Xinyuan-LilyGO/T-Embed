@@ -5,6 +5,8 @@
 #include "app_led.h"
 #include "app_music.h"
 #include "app_wireless.h"
+#include "app_radio.h"
+#include "app_nfc.h"
 #include "lvgl.h"
 
 #define LV_DELAY(x)                                                                                                                                  \

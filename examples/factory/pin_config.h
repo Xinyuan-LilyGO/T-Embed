@@ -52,3 +52,8 @@
 #define PIN_SD_SCK            40
 #define PIN_SD_MOSI           41
 #define PIN_SD_MISO           38
+
+#define RADIO_CS_PIN          17
+#define RADIO_SW1_PIN         43
+#define RADIO_SW0_PIN         44
+#define NFC_CS                16

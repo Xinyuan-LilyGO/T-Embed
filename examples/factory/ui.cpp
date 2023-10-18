@@ -13,6 +13,8 @@ LV_IMG_DECLARE(img_controller);
 LV_IMG_DECLARE(img_music);
 LV_IMG_DECLARE(img_wifi);
 LV_IMG_DECLARE(img_configuration);
+LV_IMG_DECLARE(img_radio);
+LV_IMG_DECLARE(img_nfc);
 
 static lv_style_t style_frameless;
 static lv_obj_t *main_screen;
@@ -138,6 +140,8 @@ void ui_init(void) {
   create_app(panel, "Music", &img_music, &app_music);
   create_app(panel, "Mic FFT", &img_mic, &app_fft);
   create_app(panel, "Configuration", &img_configuration, &app_config);
+  create_app(panel, "Radio", &img_radio, &app_radio);
+  create_app(panel, "Nfc", &img_nfc, &app_nfc);
 
   /* Initialize the label */
   lv_obj_t *desc_label = lv_label_create(menu_panel);
