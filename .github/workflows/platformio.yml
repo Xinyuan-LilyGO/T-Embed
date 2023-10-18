@@ -1,0 +1,40 @@
+name: PlatformIO CI
+
+on:
+  pull_request:
+  push:
+    paths:
+      - "examples/**"
+      - "src/**"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        example:
+          [
+            factory,
+            led,
+            mic,
+            tft,
+            sound,
+            TFT_Rainbow,
+          ]
+
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.platformio/.cache
+          key: ${{ runner.os }}-pio
+      - uses: actions/setup-python@v4
+        with:
+          python-version: "3.9"
+      - name: Install PlatformIO Core
+        run: pip install --upgrade platformio
+
+      - name: Run PlatformIO
+        run: pio run -e  ${{ matrix.example }}
