@@ -7,7 +7,7 @@
 #ifdef LV_CONF_INCLUDE_SIMPLE
 #include "lvgl.h"
 #else
-#include "lvgl/lvgl.h"
+ #include "lvgl.h"
 #endif
 
 #ifndef ALIBABA_FONT

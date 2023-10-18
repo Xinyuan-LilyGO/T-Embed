@@ -31,7 +31,7 @@ static void change_fft_event_cb(lv_event_t *e) {
   lv_msg_t *m = lv_event_get_msg(e);
   uint16_t *fft = (uint16_t *)lv_msg_get_payload(m);
 
-  lv_coord_t *ser_array = lv_chart_get_y_array(chart, ser);
+  // lv_coord_t *ser_array = lv_chart_get_y_array(chart, ser);
 
   for (int i = 0; i < SAMPLES / 2; i++) {
     ser->y_points[i] = (uint16_t)fft[i];

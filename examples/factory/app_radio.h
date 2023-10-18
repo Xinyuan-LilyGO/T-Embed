@@ -6,4 +6,4 @@
 extern app_t app_radio;
 
 void app_radio_load(lv_obj_t *cont);
-void set_text_radio_ta(char * txt, int cmd);
+void set_text_radio_ta(const char * txt, int cmd);

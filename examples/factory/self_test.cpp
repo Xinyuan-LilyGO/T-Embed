@@ -8,7 +8,7 @@
 #include <lvgl.h>
 
 #ifndef LV_DELAY
-#define LV_DELAY(x)   {uint32_t t = x; do { lv_timer_handler();delay(1);} while (0);}
+#define LV_DELAY(x)   {uint32_t t = x; do { lv_timer_handler();delay(1);} while (t--);}
 #endif
 
 LV_IMG_DECLARE(lilygo2_gif);
@@ -97,7 +97,6 @@ void self_test(void) {
   Serial.print(WIFI_SSID);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   uint32_t last_tick = millis();
-  uint32_t i = 0;
   bool is_smartconfig_connect = false;
   lv_label_set_long_mode(log_label, LV_LABEL_LONG_WRAP);
   while (WiFi.status() != WL_CONNECTED) {
@@ -246,7 +245,7 @@ static void ui_begin() {
   lv_obj_add_event_cb(bat_label, update_text_subscriber_cb, LV_EVENT_MSG_RECEIVED, NULL);
   lv_msg_subsribe_obj(MSG_NEW_VOLT, bat_label, (void *)"VOLT : %d mV");
 
-  lv_timer_t *timer = lv_timer_create(timer_task, 500, seg_text);
+  lv_timer_create(timer_task, 500, seg_text);
 }
 
 bool is_self_check_completed(void) { return _is_self_check_completed; }

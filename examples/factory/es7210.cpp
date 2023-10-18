@@ -210,9 +210,7 @@ void ES7210::adc_set_gain(es7210_input_mics_t mic_mask, es7210_gain_value_t gain
 void ES7210::adc_set_gain_all(es7210_gain_value_t gain) {
   uint32_t max_gain_vaule = 14;
   uint32_t _gain = gain;
-  if (_gain < 0) {
-    _gain = 0;
-  } else if (_gain > max_gain_vaule) {
+  if (_gain > max_gain_vaule) {
     _gain = max_gain_vaule;
   }
   log_d("SET: gain:%d", gain);

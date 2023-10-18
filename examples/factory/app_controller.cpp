@@ -232,12 +232,12 @@ static void get_ble_data_event_cb(lv_event_t *e) {
   if (controller_param.need_to_update) {
     /* get instance */
     lv_obj_t *instance = lv_event_get_target(e);
-    lv_event_code_t c = lv_event_get_code(e);
+    // lv_event_code_t c = lv_event_get_code(e);
     lv_msg_t *m = lv_event_get_msg(e);
     meter_config_t *u = (meter_config_t *)lv_event_get_user_data(e);
     const float *fv = (const float *)lv_msg_get_payload(m); // Get the data passed by BLE.
     int32_t v = *fv;                                        // Convert float to int.
-    if (v >= INDIC_1_MIN & v <= INDIC_1_MAX) {
+    if (v >= INDIC_1_MIN && v <= INDIC_1_MAX) {
       *u->value = v;                                            // Update global parameters
       lv_meter_set_indicator_end_value(instance, u->indic, v);  // Update the pointer in the gauge 1.
       lv_meter_set_indicator_value(instance, u->knob_indic, v); // Update the pointer in the gauge 2.

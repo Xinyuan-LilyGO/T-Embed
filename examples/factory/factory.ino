@@ -26,7 +26,6 @@
 #include <lvgl.h> // https://github.com/lvgl/lvgl
 #include <RadioLib.h>
 #include <Adafruit_PN532.h>
-
 typedef struct {
     uint8_t cmd;
     uint8_t data[14];
@@ -89,6 +88,8 @@ Adafruit_PN532 nfc(NFC_CS, &radioBus);
 extern int nfc_init_succeed;
 extern int radio_init_succeed;
 extern lv_timer_t *transmitTask;
+extern void lv_msg_send(uint32_t msg_id, const void * payload);
+
 
 void ui_task(void *param);
 void wav_task(void *param);
@@ -172,8 +173,8 @@ void wav_task(void *param)
 {
     String music_path;
     bool is_pause = false;
-    uint32_t time_pos, Millis;
-    static uint32_t music_time, end_time;
+    uint32_t time_pos = 0, Millis = 0;
+    static uint32_t music_time = 0, end_time = 0;
     audio = new Audio(0, 3, 1);
     audio->setPinout(PIN_IIS_BCLK, PIN_IIS_WCLK, PIN_IIS_DOUT);
     audio->setVolume(21); // 0...21
@@ -241,7 +242,7 @@ void ui_task(void *param)
     // Update Embed initialization parameters
     for (uint8_t i = 0; i < (sizeof(lcd_st7789v) / sizeof(lcd_cmd_t)); i++) {
         tft.writecommand(lcd_st7789v[i].cmd);
-        for (int j = 0; j < lcd_st7789v[i].len & 0x7f; j++) {
+        for (int j = 0; j < (lcd_st7789v[i].len & 0x7f); j++) {
             tft.writedata(lcd_st7789v[i].data[j]);
         }
 
@@ -633,7 +634,7 @@ void led_task(void *param)
     uint8_t brightness = 1;
 
     uint16_t temp, mode = 0;
-    int8_t last_led;
+    int8_t last_led = 0;
     EventBits_t bit;
 
     while (1) {
@@ -732,7 +733,9 @@ void spk_init(void)
         .mclk_multiple = I2S_MCLK_MULTIPLE_256,
         .bits_per_chan = I2S_BITS_PER_CHAN_16BIT,
     };
-    i2s_pin_config_t pin_config = {0};
+    i2s_pin_config_t pin_config;
+    pin_config.data_in_num = -1;
+    pin_config.mck_io_num = -1;
     pin_config.bck_io_num = PIN_IIS_BCLK;
     pin_config.ws_io_num = PIN_IIS_WCLK;
     pin_config.data_out_num = PIN_IIS_DOUT;
@@ -832,7 +835,7 @@ void timeavailable(struct timeval *t)
 void mic_spk_task(void *param)
 {
     static uint16_t buffer[3200] = {0};
-    uint32_t temp = 0;
+    // uint32_t temp = 0;
     spk_init();
     // FFT_Install();
     mic_init();
@@ -868,7 +871,6 @@ void mic_spk_task(void *param)
 void mic_fft_task(void *param)
 {
 
-    size_t bytes_read;
     uint16_t buffer[SAMPLES] = {0};
     bool start_fft = false;
     FFT_Install();

@@ -121,7 +121,7 @@ void ui_init(void) {
 
   /* Create two views for switching menus and app UI */
   lv_obj_t *menu_panel = lv_tileview_add_tile(main_screen, 0, 0, LV_DIR_HOR);
-  lv_obj_t *app_panel = lv_tileview_add_tile(main_screen, 0, 1, LV_DIR_HOR);
+  lv_tileview_add_tile(main_screen, 0, 1, LV_DIR_HOR);
 
   lv_obj_clear_flag(menu_panel, LV_OBJ_FLAG_SCROLLABLE);
 

@@ -17,18 +17,12 @@ static uint32_t configTransmitInterval = 0;
 lv_timer_t *transmitTask;
 static lv_obj_t *radio_ta = NULL;
 
-static struct {
-  uint8_t brightness;
-  uint8_t mode;
-  lv_obj_t *slider;
-  lv_obj_t *roller;
-} radio_param;
 
 char set_text_radio_data[250] = {0};
 static int new_data = 0;
 
 
-void set_text_radio_ta(char * txt, int cmd)
+void set_text_radio_ta(const char * txt, int cmd)
 {
     if(cmd && new_data)
     {

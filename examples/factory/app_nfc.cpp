@@ -88,11 +88,11 @@ void app_nfc_load(lv_obj_t *cont) {
     resume_nfcTaskHandler();
 }
 
-static void sleep_event_cb(lv_event_t *e) {
-  digitalWrite(PIN_POWER_ON, 0);
-  esp_sleep_enable_ext0_wakeup((gpio_num_t)PIN_ENCODE_BTN, 0);
-  esp_deep_sleep_start();
-}
+// static void sleep_event_cb(lv_event_t *e) {
+//   digitalWrite(PIN_POWER_ON, 0);
+//   esp_sleep_enable_ext0_wakeup((gpio_num_t)PIN_ENCODE_BTN, 0);
+//   esp_deep_sleep_start();
+// }
 
 extern void suspend_nfcTaskHandler(void);
 void app_nfc_exit(lv_obj_t *cont) 

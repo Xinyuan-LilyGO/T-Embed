@@ -16,7 +16,6 @@ extern QueueHandle_t play_music_queue;
 extern QueueHandle_t play_time_queue;
 extern EventGroupHandle_t global_event_group;
 
-static void select_song_event_cb(lv_event_t *e);
 static lv_obj_t *create_music_btn(lv_obj_t *parent, lv_align_t align, lv_coord_t x_ofs, lv_coord_t y_ofs,const char *symbol);
 static void find_file(fs::FS &fs, const char *dirname, uint8_t levels, String &output,const char *file_type);
 
