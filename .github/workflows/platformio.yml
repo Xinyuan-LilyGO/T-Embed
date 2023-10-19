@@ -20,6 +20,8 @@ jobs:
             tft,
             sound,
             TFT_Rainbow,
+            CC1101_Transmit,
+            CC1101_Receive,
           ]
 
     steps:
