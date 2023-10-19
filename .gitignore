@@ -32,3 +32,5 @@
 *.app
 .pio
 .vs*
+script
+build
