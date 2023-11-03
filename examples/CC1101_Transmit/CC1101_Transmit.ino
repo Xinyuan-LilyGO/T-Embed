@@ -9,7 +9,7 @@
 #include <RadioLib.h>
 #include <Adafruit_PN532.h>
 #include "TFTHelper.h"
-
+#include "OneButton.h"
 
 static float freq = 0;
 
@@ -31,6 +31,7 @@ Adafruit_PN532 nfc(SHIELD_NFC_CS_PIN, &newSPI);
 TFT_eSprite spr = TFT_eSprite(&tft);
 TFT_eSprite sprTitle = TFT_eSprite(&tft);
 TFT_eSprite nfcSpr = TFT_eSprite(&tft);
+OneButton button(BOARD_ENCODE_CENTEN_PIN, true);
 
 int spr_w = 0;
 int spr_h = 0;
@@ -38,6 +39,9 @@ int spr_start_x = 0;
 int spr_start_y = 0;
 int start_x ;
 int title_h ;
+SemaphoreHandle_t radioLock;
+uint8_t currFreq = FREQ_868MHZ;
+bool nfcOnline = true;
 
 void readMifareClassic(void);
 
@@ -72,10 +76,50 @@ void setFreq( CC1101_Freq f)
     digitalWrite(SHIELD_RADIO_SW0_PIN, HIGH);
 }
 
+void clickCallback()
+{
+    Serial.println("Cilick");
+    currFreq++;
+    currFreq %= (FREQ_915MHZ + 1);
+    setFreq((CC1101_Freq)currFreq);
+    if (xSemaphoreTake(radioLock, portMAX_DELAY)) {
+        // set carrier frequency
+        if (radio.setFrequency(freq) == RADIOLIB_ERR_INVALID_FREQUENCY) {
+            Serial.println(F("[CC1101] Selected frequency is invalid for this module!"));
+            tft.println(F("[CC1101] Selected frequency is invalid for this module!"));
+        } else {
+            Serial.println(F("[CC1101] Selected frequency successed!"));
+        }
+
+        String str = String(freq);
+        str.concat("MHz");
+
+        sprTitle.setFreeFont(&FreeMono9pt7b);
+        sprTitle.drawString("Sender:", 15, 5);
+        sprTitle.drawString(str, 15, 25);
+        sprTitle.pushSprite(0, 0);
+
+        xSemaphoreGive(radioLock);
+    }
+}
+
+
+void buttonLoop(void *)
+{
+    while (1) {
+        button.tick();
+        delay(5);
+    }
+}
+
 
 void setup()
 {
     Serial.begin(115200);
+
+    // Create lock
+    radioLock = xSemaphoreCreateBinary();
+    xSemaphoreGive(radioLock);
 
     // Using battery requires setting IO46 to HIGH,
     // otherwise the device will not allow
@@ -104,7 +148,7 @@ void setup()
     pinMode(SHIELD_RADIO_SW1_PIN, OUTPUT);
     pinMode(SHIELD_RADIO_SW0_PIN, OUTPUT);
     //Set CC1101 frequency
-    setFreq(FREQ_868MHZ);
+    setFreq((CC1101_Freq)currFreq);
 
     // Initialize SPI
     newSPI.begin(BOARD_SPI_SCK_PIN, BOARD_SPI_MISO_PIN, BOARD_SPI_MOSI_PIN);
@@ -113,17 +157,17 @@ void setup()
     nfc.begin();
     uint32_t versiondata = nfc.getFirmwareVersion();
     if (! versiondata) {
-        Serial.print("Didn't find PN53x chip");
-        tft.print("Didn't find PN53x chip");
-        while (1); // halt
+        Serial.println("Didn't find PN53x chip");
+        tft.println("Didn't find PN53x chip");
+        delay(1000);
+        nfcOnline = false;
+    } else {
+        // Got ok data, print it out!
+        Serial.print("Found chip PN5"); Serial.println((versiondata >> 24) & 0xFF, HEX);
+        Serial.print("Firmware ver. "); Serial.print((versiondata >> 16) & 0xFF, DEC);
+        Serial.print('.'); Serial.println((versiondata >> 8) & 0xFF, DEC);
+        Serial.println("Waiting for an ISO14443A Card ...");
     }
-
-    // Got ok data, print it out!
-    Serial.print("Found chip PN5"); Serial.println((versiondata >> 24) & 0xFF, HEX);
-    Serial.print("Firmware ver. "); Serial.print((versiondata >> 16) & 0xFF, DEC);
-    Serial.print('.'); Serial.println((versiondata >> 8) & 0xFF, DEC);
-    Serial.println("Waiting for an ISO14443A Card ...");
-
 
     // initialize CC1101
     Serial.print(F("[CC1101] Initializing ... "));
@@ -222,6 +266,12 @@ void setup()
     nfcSpr.drawRoundRect(0, 0, start_x, title_h, 5, TFT_DARKCYAN);
     str = "NFC";
     nfcSpr.drawString(str,  15, 5);
+    if (!nfcOnline) {
+        nfcSpr.setTextFont(1);
+        nfcSpr.setTextColor(TFT_RED);
+        str = "FAIL";
+        nfcSpr.drawString(str, 15, 25);
+    }
     nfcSpr.pushSprite(start_x, 0);
 
 
@@ -233,12 +283,24 @@ void setup()
     spr.setCursor(spr_start_x, spr_start_y);
     spr.setFreeFont(&FreeSerif9pt7b);
     spr.pushSprite(0, tft.height() / 3);
+
+
+    button.attachClick(clickCallback);
+
+    xTaskCreate(buttonLoop, "btn", 2048, NULL, 10, NULL);
 }
 
 void loop()
 {
-    // Block for 2 seconds to read the tag
-    readMifareClassic();
+
+    if (nfcOnline) {
+        // Block for 2 seconds to read the tag
+        readMifareClassic();
+    }
+
+    if (xSemaphoreTake(radioLock, pdMS_TO_TICKS(200)) != pdPASS) {
+        return;
+    }
 
     spr.fillSprite(TFT_BLACK);
     spr.drawRoundRect(0, 0, spr_w - 2, spr_h - 2, 5, TFT_ORANGE);
@@ -251,7 +313,7 @@ void loop()
     spr.print("[");
     spr.print(millis() / 1000);
     spr.println("]");
-    spr.println("[CC1101] Transmitting packet");
+    spr.print("[CC1101] Transmitting packet");
 
 
     // Add Embed: as the header of the sending and receiving strings
@@ -274,6 +336,11 @@ void loop()
         Serial.println(F("success!"));
         spr.println(F(" success!"));
 
+        spr.print("Packet:");
+        spr.println(msg);
+
+
+
     } else if (state == RADIOLIB_ERR_PACKET_TOO_LONG) {
         // the supplied packet was longer than 64 bytes
         Serial.println(F("too long!"));
@@ -289,6 +356,7 @@ void loop()
 
     spr.pushSprite(0, tft.height() / 3);
 
+    xSemaphoreGive(radioLock);
 
     // // wait for a second before transmitting again
     // delay(1000);

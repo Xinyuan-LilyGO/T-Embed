@@ -10,6 +10,7 @@
 #include <RadioLib.h>
 #include <Adafruit_PN532.h>
 #include "TFTHelper.h"
+#include "OneButton.h"
 
 static float freq = 0;
 
@@ -31,6 +32,7 @@ Adafruit_PN532 nfc(SHIELD_NFC_CS_PIN, &newSPI);
 TFT_eSprite spr = TFT_eSprite(&tft);
 TFT_eSprite sprTitle = TFT_eSprite(&tft);
 TFT_eSprite nfcSpr = TFT_eSprite(&tft);
+OneButton button(BOARD_ENCODE_CENTEN_PIN, true);
 
 int spr_w = 0;
 int spr_h = 0;
@@ -38,6 +40,9 @@ int spr_start_x = 0;
 int spr_start_y = 0;
 int start_x ;
 int title_h ;
+SemaphoreHandle_t radioLock;
+uint8_t currFreq = FREQ_868MHZ;
+bool nfcOnline = true;
 
 void readMifareClassic(void);
 
@@ -73,9 +78,49 @@ void setFreq( CC1101_Freq f)
 }
 
 
+void clickCallback()
+{
+    Serial.println("Cilick");
+    currFreq++;
+    currFreq %= (FREQ_915MHZ + 1);
+    setFreq((CC1101_Freq)currFreq);
+    if (xSemaphoreTake(radioLock, portMAX_DELAY)) {
+        // set carrier frequency
+        if (radio.setFrequency(freq) == RADIOLIB_ERR_INVALID_FREQUENCY) {
+            Serial.println(F("[CC1101] Selected frequency is invalid for this module!"));
+            tft.println(F("[CC1101] Selected frequency is invalid for this module!"));
+        } else {
+            Serial.println(F("[CC1101] Selected frequency successed!"));
+        }
+
+        String str = String(freq);
+        str.concat("MHz");
+
+        sprTitle.setFreeFont(&FreeMono9pt7b);
+        sprTitle.drawString("Recvive:", 15, 5);
+        sprTitle.drawString(str, 15, 25);
+        sprTitle.pushSprite(0, 0);
+
+        xSemaphoreGive(radioLock);
+    }
+}
+
+
+void buttonLoop(void *)
+{
+    while (1) {
+        button.tick();
+        delay(5);
+    }
+}
+
 void setup()
 {
     Serial.begin(115200);
+
+    // Create lock
+    radioLock = xSemaphoreCreateBinary();
+    xSemaphoreGive(radioLock);
 
     // Using battery requires setting IO46 to HIGH,
     // otherwise the device will not allow
@@ -113,16 +158,17 @@ void setup()
     nfc.begin();
     uint32_t versiondata = nfc.getFirmwareVersion();
     if (! versiondata) {
-        Serial.print("Didn't find PN53x chip");
-        tft.print("Didn't find PN53x chip");
-        while (1); // halt
+        Serial.println("Didn't find PN53x chip");
+        tft.println("Didn't find PN53x chip");
+        delay(1000);
+        nfcOnline = false;
+    } else {
+        // Got ok data, print it out!
+        Serial.print("Found chip PN5"); Serial.println((versiondata >> 24) & 0xFF, HEX);
+        Serial.print("Firmware ver. "); Serial.print((versiondata >> 16) & 0xFF, DEC);
+        Serial.print('.'); Serial.println((versiondata >> 8) & 0xFF, DEC);
+        Serial.println("Waiting for an ISO14443A Card ...");
     }
-
-    // Got ok data, print it out!
-    Serial.print("Found chip PN5"); Serial.println((versiondata >> 24) & 0xFF, HEX);
-    Serial.print("Firmware ver. "); Serial.print((versiondata >> 16) & 0xFF, DEC);
-    Serial.print('.'); Serial.println((versiondata >> 8) & 0xFF, DEC);
-    Serial.println("Waiting for an ISO14443A Card ...");
 
 
     // initialize CC1101
@@ -222,6 +268,12 @@ void setup()
     nfcSpr.drawRoundRect(0, 0, start_x, title_h, 5, TFT_DARKCYAN);
     str = "NFC";
     nfcSpr.drawString(str,  15, 5);
+    if (!nfcOnline) {
+        nfcSpr.setTextFont(1);
+        nfcSpr.setTextColor(TFT_RED);
+        str = "FAIL";
+        nfcSpr.drawString(str, 15, 25);
+    }
     nfcSpr.pushSprite(start_x, 0);
 
 
@@ -235,14 +287,23 @@ void setup()
     spr.println(F("Waiting for incoming transmission ... "));
     spr.pushSprite(0, tft.height() / 3);
 
+
+    button.attachClick(clickCallback);
+
+    xTaskCreate(buttonLoop, "btn", 2048, NULL, 10, NULL);
 }
 
 
 void loop()
 {
-    // Block for 2 seconds to read the tag
-    readMifareClassic();
+    if (nfcOnline) {
+        // Block for 2 seconds to read the tag
+        readMifareClassic();
+    }
 
+    if (xSemaphoreTake(radioLock, pdMS_TO_TICKS(200)) != pdPASS) {
+        return;
+    }
 
     Serial.print(F("[CC1101] Waiting for incoming transmission ... "));
 
@@ -309,6 +370,7 @@ void loop()
         Serial.println(state);
     }
 
+    xSemaphoreGive(radioLock);
 
 }
 
