@@ -322,6 +322,7 @@ void loop()
         // Add data filtering to only match the corresponding character prefix.
         // If you do not add a data prefix, it may be interfered by other products with the same frequency.
         if (!str.startsWith("Embed:")) {
+            xSemaphoreGive(radioLock);
             return;
         }
         // remove prefix
