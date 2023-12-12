@@ -13,6 +13,7 @@ int16_t         *vad_buff;
 vad_handle_t    vad_inst;
 size_t          bytes_read;
 
+// !If the CC1101 shield is present, the microphone will not work
 void setup()
 {
     pinMode(PIN_POWER_ON, OUTPUT);

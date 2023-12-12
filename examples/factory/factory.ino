@@ -70,6 +70,7 @@ static EventGroupHandle_t lv_input_event;
 
 static TaskHandle_t radioTaskHandler;
 static TaskHandle_t  nfcTaskHandler;
+static bool isCoderOnline = false;
 
 u32_t radio_task_delay_ms = 200;
 
@@ -81,8 +82,8 @@ static int transmissionState = RADIOLIB_ERR_NONE;
 static bool radioTransmitFlag = false;
 
 SPIClass radioBus =  SPIClass(HSPI);
+// ?If you use the CC1101 shield, the ES7210 decoding chip will not be used. This is a conflict.
 CC1101 radio = new Module(RADIO_CS_PIN, PIN_IIC_SDA, RADIOLIB_NC, PIN_IIC_SCL, radioBus);
-//Adafruit_PN532 nfc(PIN_SD_SCK, PIN_SD_MISO, PIN_SD_MOSI,NFC_CS);
 Adafruit_PN532 nfc(NFC_CS, &radioBus);
 
 extern int nfc_init_succeed;
@@ -151,17 +152,33 @@ void setup()
     SPIFFS.begin(true);
     Serial.printf("SPIFFS totalBytes : %d kb\r\n", SPIFFS.totalBytes() / 1024);
     Serial.printf("SPIFFS usedBytes : %d kb\r\n", SPIFFS.usedBytes() / 1024);
+
+    /*
+    * Since CC1101 uses SDA and SCL, it is necessary to detect whether the ES7210 exists.
+    * If it exists, then the CC1101 shield can be used.
+    * If it does not exist, it means that the CC1101 shield may exist.
+    * */
+    Wire.begin(PIN_IIC_SDA, PIN_IIC_SCL);
+    Wire.beginTransmission(0x40);
+    if (Wire.endTransmission() == 0) {
+        Serial.println("ES7210 Online.");
+        isCoderOnline = true;
+    } else {
+        Serial.println("ES7210 not online.");
+        //* If it does not exist, then the CC1101 shield may exist, so there is no need for Wire to exist.
+        Wire.endTransmission();
+    }
+
     SD_init();
 
     xTaskCreatePinnedToCore(led_task, "led_task", 1024 * 2, led_setting_queue, 0, NULL, 0);
     xTaskCreatePinnedToCore(ui_task, "ui_task", 1024 * 40, NULL, 3, NULL, 1);
 
-    radio_init();
-    xTaskCreate(radio_task, "radio_task", 2048, NULL, 10, &radioTaskHandler);
-
-    xTaskCreate(nfc_task, "nfc_task", 2048, NULL, 10, &nfcTaskHandler);
-
-
+    if (!isCoderOnline) {
+        radio_init();
+        xTaskCreate(radio_task, "radio_task", 2048, NULL, 10, &radioTaskHandler);
+        xTaskCreate(nfc_task, "nfc_task", 2048, NULL, 10, &nfcTaskHandler);
+    }
 }
 
 void loop()
@@ -252,11 +269,11 @@ void ui_task(void *param)
     }
 
     button.attachClick(
-    [](void *param) {
+        [](void *param) {
         EventGroupHandle_t *lv_input_event = (EventGroupHandle_t *)param;
         xEventGroupSetBits(lv_input_event, LV_BUTTON);
         xEventGroupSetBits(global_event_group, WAV_RING_1);
-    },
+    }, 
     lv_input_event);
 
     lv_init();
@@ -298,32 +315,34 @@ void ui_task(void *param)
     lv_obj_t *self_test_btn = create_btn(lv_scr_act(), "self test");
     lv_obj_align(self_test_btn, LV_ALIGN_CENTER, -80, 0);
     lv_obj_add_event_cb(
-        self_test_btn,
-    [](lv_event_t *e) {
+        self_test_btn, 
+        [](lv_event_t *e) {
         lv_obj_clean(lv_scr_act());
-        xTaskCreatePinnedToCore(mic_spk_task, "mic_spk_task", 1024 * 20, NULL, 3, NULL, 0);
+        if (!isCoderOnline) {
+            xTaskCreatePinnedToCore(mic_spk_task, "mic_spk_task", 1024 * 20, NULL, 3, NULL, 0);
+        }
         xEventGroupSetBits(lv_input_event, LV_SELF_TEST_START);
-    },
+    },  
     LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *into_ui_btn = create_btn(lv_scr_act(), "into ui");
     lv_obj_align(into_ui_btn, LV_ALIGN_CENTER, 80, 0);
-    lv_obj_add_event_cb(
-        into_ui_btn,
-    [](lv_event_t *e) {
+    lv_obj_add_event_cb( 
+        into_ui_btn, 
+        [](lv_event_t *e) {
         lv_obj_clean(lv_scr_act());
         xTaskCreatePinnedToCore(wav_task, "wav_task", 1024 * 4, NULL, 2, NULL, 0);
         xTaskCreatePinnedToCore(mic_fft_task, "fft_task", 1024 * 20, NULL, 1, NULL, 0);
         xEventGroupSetBits(lv_input_event, LV_UI_DEMO_START);
-    },
+    },  
     LV_EVENT_CLICKED, NULL);
 
-    attachInterrupt(
-    digitalPinToInterrupt(PIN_ENCODE_A), []() {
+    attachInterrupt( 
+        digitalPinToInterrupt(PIN_ENCODE_A), []() {
         encoder.tick();
     }, CHANGE);
-    attachInterrupt(
-    digitalPinToInterrupt(PIN_ENCODE_B), []() {
+    attachInterrupt( 
+        digitalPinToInterrupt(PIN_ENCODE_B), []() {
         encoder.tick();
     }, CHANGE);
 
@@ -331,8 +350,10 @@ void ui_task(void *param)
         delay(1);
         button.tick();
         lv_timer_handler();
-        set_text_radio_ta(NULL, 1);
-        set_nfc_message_label(NULL, 1);
+        if (isCoderOnline) {
+            set_text_radio_ta(NULL, 1);
+            set_nfc_message_label(NULL, 1);
+        }
         RotaryEncoder::Direction dir = encoder.getDirection();
         if (dir != RotaryEncoder::Direction::NOROTATION) {
             if (dir != RotaryEncoder::Direction::CLOCKWISE) {
@@ -472,7 +493,7 @@ void nfc_task(void *param)
     if (! versiondata) {
         Serial.print("Didn't find PN53x board");
         nfc_init_succeed = 0;
-        
+
         //while (1); // halt
     }
     else 
@@ -525,47 +546,47 @@ void nfc_task(void *param)
 
             if (uidLength == 4)
             {
-            // We probably have a Mifare Classic card ...
-            Serial.println("Seems to be a Mifare Classic card (4 byte UID)");
+                // We probably have a Mifare Classic card ...
+                Serial.println("Seems to be a Mifare Classic card (4 byte UID)");
 
-            // Now we need to try to authenticate it for read/write access
-            // Try with the factory default KeyA: 0xFF 0xFF 0xFF 0xFF 0xFF 0xFF
-            Serial.println("Trying to authenticate block 4 with default KEYA value");
-            uint8_t keya[6] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
+                // Now we need to try to authenticate it for read/write access
+                // Try with the factory default KeyA: 0xFF 0xFF 0xFF 0xFF 0xFF 0xFF
+                Serial.println("Trying to authenticate block 4 with default KEYA value");
+                uint8_t keya[6] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
 
-            // Start with block 4 (the first block of sector 1) since sector 0
-            // contains the manufacturer data and it's probably better just
-            // to leave it alone unless you know what you're doing
-            success = nfc.mifareclassic_AuthenticateBlock(uid, uidLength, 4, 0, keya);
+                // Start with block 4 (the first block of sector 1) since sector 0
+                // contains the manufacturer data and it's probably better just
+                // to leave it alone unless you know what you're doing
+                success = nfc.mifareclassic_AuthenticateBlock(uid, uidLength, 4, 0, keya);
 
             if (success)
             {
-                Serial.println("Sector 1 (Blocks 4..7) has been authenticated");
-                uint8_t data[16];
+                    Serial.println("Sector 1 (Blocks 4..7) has been authenticated");
+                    uint8_t data[16];
 
-                // If you want to write something to block 4 to test with, uncomment
-                // the following line and this text should be read back in a minute
-                //memcpy(data, (const uint8_t[]){ 'a', 'd', 'a', 'f', 'r', 'u', 'i', 't', '.', 'c', 'o', 'm', 0, 0, 0, 0 }, sizeof data);
-                // success = nfc.mifareclassic_WriteDataBlock (4, data);
+                    // If you want to write something to block 4 to test with, uncomment
+                    // the following line and this text should be read back in a minute
+                    //memcpy(data, (const uint8_t[]){ 'a', 'd', 'a', 'f', 'r', 'u', 'i', 't', '.', 'c', 'o', 'm', 0, 0, 0, 0 }, sizeof data);
+                    // success = nfc.mifareclassic_WriteDataBlock (4, data);
 
-                // Try to read the contents of block 4
-                success = nfc.mifareclassic_ReadDataBlock(4, data);
+                    // Try to read the contents of block 4
+                    success = nfc.mifareclassic_ReadDataBlock(4, data);
 
                 if (success)
                 {
-                // Data seems to have been read ... spit it out
-                Serial.println("Reading Block 4:");
-                nfc.PrintHexChar(data, 16);
-                Serial.println("");
+                        // Data seems to have been read ... spit it out
+                        Serial.println("Reading Block 4:");
+                        nfc.PrintHexChar(data, 16);
+                        Serial.println("");
 
-                //sprintf(text_radio_data, "Sector 1 (Blocks" );
-                sprintf(text_nfc_data, "Success recognition count: %d\n", nfc_Success_count);
-                sprintf(&text_nfc_data[strlen(text_nfc_data)], "Seems to be a Mifare Classic card (4 byte UID)\nUID Value: " );
-                uint8_to_hexstr(uid, 4, &text_nfc_data[strlen(text_nfc_data)]);
-                sprintf(&text_nfc_data[strlen(text_nfc_data)], "\nSector 1 (Blocks 4..7) has been authenticated" );
+                        //sprintf(text_radio_data, "Sector 1 (Blocks" );
+                        sprintf(text_nfc_data, "Success recognition count: %d\n", nfc_Success_count);
+                        sprintf(&text_nfc_data[strlen(text_nfc_data)], "Seems to be a Mifare Classic card (4 byte UID)\nUID Value: " );
+                        uint8_to_hexstr(uid, 4, &text_nfc_data[strlen(text_nfc_data)]);
+                        sprintf(&text_nfc_data[strlen(text_nfc_data)], "\nSector 1 (Blocks 4..7) has been authenticated" );
 
-                set_nfc_message_label(text_nfc_data, 0);
-                // Wait a bit before reading the card again
+                        set_nfc_message_label(text_nfc_data, 0);
+                        // Wait a bit before reading the card again
                 delay(1000);
                 }
                 else
@@ -587,13 +608,13 @@ void nfc_task(void *param)
 
             if (uidLength == 7)
             {
-            // We probably have a Mifare Ultralight card ...
-            Serial.println("Seems to be a Mifare Ultralight tag (7 byte UID)");
+                // We probably have a Mifare Ultralight card ...
+                Serial.println("Seems to be a Mifare Ultralight tag (7 byte UID)");
 
-            // Try to read the first general-purpose user page (#4)
-            Serial.println("Reading page 4");
-            uint8_t data[32];
-            success = nfc.mifareultralight_ReadPage (4, data);
+                // Try to read the first general-purpose user page (#4)
+                Serial.println("Reading page 4");
+                uint8_t data[32];
+                success = nfc.mifareultralight_ReadPage (4, data);
             if (success)
             {
                 // Data seems to have been read ... spit it out
@@ -747,7 +768,6 @@ void spk_init(void)
 
 void mic_init(void)
 {
-    Wire.begin(PIN_IIC_SDA, PIN_IIC_SCL);
     mic.begin(&Wire);
     audio_hal_codec_i2s_iface_t i2s_cfg;
     i2s_cfg.bits = AUDIO_HAL_BIT_LENGTH_16BITS;
@@ -922,9 +942,9 @@ void setFlag(void) {
     return;
   }
 
-  // we got a packet, set the flag
-  //receivedFlag = true;
-  radioTransmitFlag = true;
+    // we got a packet, set the flag
+    //receivedFlag = true;
+    radioTransmitFlag = true;
 }
 /*
 void setRadioFlag(void)
@@ -1011,8 +1031,8 @@ void radio_init(void)
         Serial.print(F("failed, code "));
         Serial.println(state);
         while (true);
-  }
-  //digitalWrite(RADIO_CS_PIN, HIGH);
+    }
+    //digitalWrite(RADIO_CS_PIN, HIGH);
 }
 
 void radio_power_cb(lv_event_t *e)
@@ -1101,7 +1121,7 @@ u_int32_t radio_rx_count = 0;
 void radioTask(lv_timer_t *parent)
 {
     char buf[256] = {0};
-    
+
     // check if the previous operation finished
     if (radioTransmitFlag) {
         // reset flag
@@ -1152,7 +1172,7 @@ void radioTask(lv_timer_t *parent)
                 /*char rssi_str[30] = {0};
                 float_to_str(rssi_t, 2, rssi_str);
                 Serial.printf("=float_to_str:%s=\n", rssi_str);*/
-                
+
                 //lv_snprintf(buf, 256, "[%u]:Rx %s \nRSSI:%d.%d", radio_rx_count, str.c_str(), (int)rssi_t, (u16_t)((int)(rssi_t*100)%100));
                 lv_snprintf(buf, 256, "[%u]:Rx %s \n", radio_rx_count, str.c_str());
                 lv_snprintf(&buf[strlen(buf)], 256, "RSSI:%d.%d", (int)rssi_t, ((int)(rssi_t*100)%100)>0?((int)(rssi_t*100)%100):((int)(rssi_t*100)%100)*-1);
@@ -1286,11 +1306,11 @@ void radio_freq_cb(lv_event_t *e)
         digitalWrite(RADIO_SW0_PIN, HIGH);
         digitalWrite(RADIO_SW1_PIN, HIGH);
     }
-   /* bool isRunning = !transmitTask->paused;
-    if (isRunning) {
-        digitalWrite(RADIO_CS_PIN, HIGH);
-        lv_timer_pause(transmitTask);
-    }*/
+    /* bool isRunning = !transmitTask->paused;
+     if (isRunning) {
+         digitalWrite(RADIO_CS_PIN, HIGH);
+         lv_timer_pause(transmitTask);
+     }*/
     digitalWrite(RADIO_CS_PIN, HIGH);
 
     if (radio.setFrequency(freq[id]) == RADIOLIB_ERR_INVALID_FREQUENCY) {
