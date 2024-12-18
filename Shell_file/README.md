@@ -1,15 +1,28 @@
 
 ## PVC Customized(定制)
-![](https://github.com/Xinyuan-LilyGO/T-Embed/blob/main/image/PVC.png)
+![](../image/PVC.png)
 
 ## Normal-Shell
 
-![](https://github.com/Xinyuan-LilyGO/T-Embed/blob/main/image/bat.jpg)
+![](../image/bat.jpg)
 
-![](https://github.com/Xinyuan-LilyGO/T-Embed/blob/main/image/IMG_0406.PNG)
+![](../image/IMG_0406.PNG)
 
 
 
 ## Big-Shell
 
-![](https://github.com/Xinyuan-LilyGO/T-Embed/blob/main/image/big.png)
+![](../image/big.png)
+
+
+## t-embed_normal-shell
+
+![t-embed_normal-shell](../image/t-embed_normal-shell.jpg)
+
+## t-embed_bottom
+
+![t-embed_bottom.stp](../image/t-embed_bottom.png)
+
+## t-embed_normal-full-shell
+
+![t-embed_normal-full-shell](../image/t-embed_normal-full-shell.jpg)
