@@ -1,0 +1,10 @@
+#######################################
+# Datatypes (KEYWORD1)
+#######################################
+Battery18650Stats	KEYWORD1
+
+#######################################
+# Methods and Functions (KEYWORD2)
+#######################################
+getBatteryChargeLevel	KEYWORD2
+getBatteryVolts	KEYWORD2
