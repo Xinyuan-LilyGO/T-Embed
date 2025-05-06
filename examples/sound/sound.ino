@@ -24,7 +24,27 @@ void setup() {
   audio = new Audio(0, 3, 1);
   audio->setPinout(PIN_IIS_BCLK, PIN_IIS_WCLK, PIN_IIS_DOUT);
   audio->setVolume(21); // 0...21
-  if(!audio->connecttoFS(SPIFFS, "/sound1.mp3")){
+
+  /*
+  play sd music
+  pinMode(PIN_SD_CS, OUTPUT);
+  digitalWrite(PIN_SD_CS, 1);
+  SD_MMC.setPins(PIN_SD_SCK, PIN_SD_MOSI, PIN_SD_MISO);
+  if (!SD_MMC.begin("/sdcard", true)) {
+      Serial.println("Card Mount Failed");
+      return;
+  }
+  uint8_t cardType = SD_MMC.cardType();
+  if (cardType == CARD_NONE) {
+      Serial.println("No SD card attached");
+      return;
+  }
+  bool ret = audio->connecttoFS(SD, "/sound1.mp3");
+  */
+
+  // play spiffs   
+  bool ret = audio->connecttoFS(SPIFFS, "/sound1.mp3");
+  if(!ret){
     Serial.println("No find sound1.mp3.");while(1)delay(1000);
   }
   Serial.println("Now play sound ...");
