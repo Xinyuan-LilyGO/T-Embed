@@ -9,7 +9,7 @@ When you suspect that there is a problem with the hardware, you can brush in our
    4. Release the BOOT button
    5. Upload sketch
 
-2. Download [Flash_download_tool](https://www.espressif.com.cn/sites/default/files/tools/flash_download_tool_3.9.4_0.zip)
+2. Download [Flash_download_tool](https://docs.espressif.com/projects/esp-test-tools/en/latest/esp32/production_stage/tools/flash_download_tool.html)
    
 3. Select esp32s3,USB
 
