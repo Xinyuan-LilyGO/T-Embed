@@ -174,11 +174,11 @@ void setup()
     xTaskCreatePinnedToCore(led_task, "led_task", 1024 * 2, led_setting_queue, 0, NULL, 0);
     xTaskCreatePinnedToCore(ui_task, "ui_task", 1024 * 40, NULL, 3, NULL, 1);
 
-    if (!isCoderOnline) {
-        radio_init();
-        xTaskCreate(radio_task, "radio_task", 2048, NULL, 10, &radioTaskHandler);
-        xTaskCreate(nfc_task, "nfc_task", 2048, NULL, 10, &nfcTaskHandler);
-    }
+    // if (!isCoderOnline) {
+    //     radio_init();
+    //     xTaskCreate(radio_task, "radio_task", 2048, NULL, 10, &radioTaskHandler);
+    //     xTaskCreate(nfc_task, "nfc_task", 2048, NULL, 10, &nfcTaskHandler);
+    // }
 }
 
 void loop()
@@ -319,6 +319,8 @@ void ui_task(void *param)
         [](lv_event_t *e) {
         lv_obj_clean(lv_scr_act());
         if (!isCoderOnline) {
+            Serial.println("Coder is not online, start self test");
+        }else{
             xTaskCreatePinnedToCore(mic_spk_task, "mic_spk_task", 1024 * 20, NULL, 3, NULL, 0);
         }
         xEventGroupSetBits(lv_input_event, LV_SELF_TEST_START);
